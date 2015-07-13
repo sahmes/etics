@@ -12,8 +12,10 @@
 #ifndef SINGLE_PRECISION
     #define DOUBLE_PRECISION
     #define Real double
+    #define MPI_ETICS_REAL MPI_DOUBLE
 #else
     #define Real float
+    #define MPI_ETICS_REAL MPI_FLOAT
 #endif
 
 #if defined MEX && defined SCF

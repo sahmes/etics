@@ -6,7 +6,7 @@ LMAX ?= 6
 NMAX ?= 10
 
 CFLAGS := -D$(METHOD) -DLMAX=$(LMAX) -DNMAX=$(NMAX) -O3 -I/usr/local/sage/local/include
-LIBS = -lm
+LIBS = -lm -lmpi
 CXXFLAGS += $(CFLAGS)
 LDFLAGS  += -lm $(MUSE_LD_FLAGS)
 CUDAFLAGS += -arch=sm_$(GPUARCH) $(CFLAGS)
@@ -30,7 +30,7 @@ $(CODELIB): $(CODEOBJS)
 	$(RANLIB) $@
 
 standalone: $(CODEOBJS)
-	$(NVCC) $(LIBS) $(LINKFLAGS) $(CUDAFLAGS) -o etics $(CODEOBJS)
+	 $(NVCC) $(LIBS) $(LINKFLAGS) $(CUDAFLAGS) -o etics $(CODEOBJS)
 
 .SUFFIXES: .cu .cpp .o
 

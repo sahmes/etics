@@ -16,14 +16,7 @@ using std::endl;
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-#include <thrust/device_ptr.h>
-#include <thrust/reduce.h>
-#include <thrust/extrema.h>
-
-#if !defined(LMAX) || !defined(NMAX)
-#error Both LMAX and NMAX have to be defined
-#endif
-
+#include <mpi.h>
 
 struct CacheStruct { // this should be in the hpp!
     int N;
@@ -343,7 +336,10 @@ __global__ void scf::CalculateGravityFromCoefficients(Real *Potential, vec3 *F) 
 void scf::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
     LoadParticlesToCache<<<128,128>>>(P, N);
     CalculateCoefficients();
-    // MPI communcation comes here
+    Complex ATotal[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
+    MPI_Allreduce(&A_h, &ATotal, (NMAX+1)*(LMAX+1)*(LMAX+2)/2*2, MPI_ETICS_REAL, MPI_SUM, MPI_COMM_WORLD);
+    std::copy ( ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
+#warning not really need this copy, just calculate the coefficients in some local array, then sum it into a global array (A_h or somthing) and copy it to GPUs
     cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
     CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
 }

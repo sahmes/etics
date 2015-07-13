@@ -9,9 +9,9 @@
 
 using namespace std;
 
-void ReadICs(string FileName, int N, int Skip, Particle **hostP) {
+void ReadICs(string FileName, int N, int Skip, Particle **P_h) {
 
-    *hostP = new Particle[N];
+    *P_h = new Particle[N];
 
     string Line;
     ifstream InputFile(FileName.c_str());
@@ -45,7 +45,7 @@ void ReadICs(string FileName, int N, int Skip, Particle **hostP) {
             p.ID = i;
             p.Status = 0;
             p.CalculateR2();
-            (*hostP)[i] = p;
+            (*P_h)[i] = p;
             i++;
             LineNum++;
             if (i == N) break;
@@ -61,10 +61,10 @@ void ReadICs(string FileName, int N, int Skip, Particle **hostP) {
     }
     // Transfer everything to the device; the host memory is implicitly freed
     // when we leave the current scope (probably).
-//     CmCorrection(&hostP[0]);
+//     CmCorrection(&P_h[0]);
 }
 
-void WriteSnapshot(string Prefix, int SnapNumber, Particle *hostP, int N, Real T) {
+void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
     char S[512];
     sprintf(S, "%s%04d", Prefix.c_str(), SnapNumber);
     ofstream SnapshotFile;
@@ -74,7 +74,7 @@ void WriteSnapshot(string Prefix, int SnapNumber, Particle *hostP, int N, Real T
     sprintf(S, "%.16E\n", T); SnapshotFile << S;
     for (int i = 0; i < N; i++) {
 #warning Snapshot has fake mass
-        sprintf(S, "%d 1E-6 %E %E %E %E %E %E\n", hostP[i].ID, hostP[i].pos.x, hostP[i].pos.y, hostP[i].pos.z, hostP[i].vel.x, hostP[i].vel.y, hostP[i].vel.z); SnapshotFile << S;
+        sprintf(S, "%d 1E-6 %E %E %E %E %E %E\n", P_h[i].ID, P_h[i].pos.x, P_h[i].pos.y, P_h[i].pos.z, P_h[i].vel.x, P_h[i].vel.y, P_h[i].vel.z); SnapshotFile << S;
     }
     SnapshotFile.close();
 }
@@ -122,23 +122,4 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
         if ((P.DeviceID==0) && (strcmp(DeviceIDStr, "0")!=0)) THROW_EXCEPTION("Error understanding device number.", 1)
     }
     *Params = P;
-}
-
-
-void GenerateRandomData(int N, Particle *hostP) {
-    srand(0);
-    for (int i = 0; i < N; i++) {
-        Real m, x, y, z, vx, vy, vz;
-        Particle p;
-        x = (Real)(((double)rand()/RAND_MAX - 0.5)*2);
-        y = (Real)(((double)rand()/RAND_MAX - 0.5)*2);
-        z = (Real)(((double)rand()/RAND_MAX - 0.5)*2);
-        p.m = 1.0/N;
-        p.pos = vec3(x, y, z);
-        p.vel = vec3(0, 0, 0);
-        p.ID = i;
-        p.Status = 0;
-        p.CalculateR2();
-        hostP[i] = p;
-    }
 }

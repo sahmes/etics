@@ -10,7 +10,7 @@ using std::cerr;
 using std::endl;
 
 #warning Those variables should actually be in main.cu, not here
-Particle *hostP;
+Particle *P_h;
 thrust::device_vector<Particle> P;
 
 thrust::device_vector<Real> Potential;
@@ -23,7 +23,7 @@ int N;
 
 
 int CommitParticles() {
-    P = thrust::device_vector<Particle>(hostP, hostP+N);
+    P = thrust::device_vector<Particle>(P_h, P_h+N);
     return 0;
 }
 

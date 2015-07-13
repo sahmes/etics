@@ -7,7 +7,6 @@ http://adsabs.harvard.edu/abs/2014ApJ...792...98M
 Make with "make standalone".
 This is a partial version, many features have already been implemented and will be added later. This version has the following issues:
 * No MEX
-* No MPI
 * No AMUSE interface
 * Snapshot writes fake mass
 * Problem for particles with |theta| << 1

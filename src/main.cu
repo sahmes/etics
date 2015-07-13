@@ -16,7 +16,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-
+#include <mpi.h>
 
 
 #define CUDA
@@ -57,6 +57,7 @@
 using namespace std;
 
 
+int MyRank, NumProcs;
 
 /////////////////////////////////////// DBG
 #include <sys/timeb.h>
@@ -127,14 +128,14 @@ extern Real ConstantStep;
 extern Real T, Step, dT1, dT2, Tcrit;
 extern int N;
 
-extern Particle *hostP;
+extern Particle *P_h;
 extern thrust::device_vector<Particle> P;
 
 extern thrust::device_vector<vec3>   F0;
 extern thrust::device_vector<Real>   Potential;
 extern thrust::device_vector<vec3>   F1;
 
- 
+
 int NSteps = 0, SnapNumber = 0;
 //TODO Not use global variables... They cause an 'unload of CUDA runtime failed'
 // error message (which does not actually affect performance).
@@ -168,41 +169,74 @@ void DisplayInformation(thrust::device_vector<Particle> *P, Real *Potential) {
     Real Ek = KineticEnergy();
     Real Ep = method::PotentialEnergy();
     Real Energy = Ek + Ep;
-    printf(" TIME =%6.2f  NSTEPS =%6d  ENERGY =%20.16f   N = %d\n", T, NSteps, Energy, (*P).size());
-    fflush(stdout);
 
-}
+    Real TotalEnergy;
+    MPI_Reduce(&Energy, &TotalEnergy, 1, MPI_ETICS_REAL, MPI_SUM, 0, MPI_COMM_WORLD);
 
-void PrepareSnapshot(thrust::device_vector<Particle> *P, Particle *hostP) {
-    Particle *P_ptr = thrust::raw_pointer_cast((*P).data());
-    cudaMemcpy(hostP, P_ptr, N * sizeof(Particle), cudaMemcpyDeviceToHost);
-    thrust::sort(hostP, hostP+N, ReorderingFunctor());
+    int N=(*P).size(), TotalN;
+    MPI_Reduce(&N, &TotalN, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (MyRank==0) {
+        printf(" TIME =%6.2f  NSTEPS =%6d  ENERGY =%20.16f   N = %d\n", T, NSteps, TotalEnergy, TotalN);
+        fflush(stdout);
+    }
 }
 
 #define PTR(x) (thrust::raw_pointer_cast((x).data()))
+
+void PrepareSnapshot(thrust::device_vector<Particle> *P, Particle **ParticleList, int *CurrentTotalN) {
+//     Particle *P_ptr = thrust::raw_pointer_cast((*P).data());
+//     cudaMemcpy(ParticleList, P_ptr, N * sizeof(Particle), cudaMemcpyDeviceToHost);
+    thrust::host_vector<Particle> LocalList((*P));
+    int LocalBufferSize = LocalList.size()*sizeof(Particle);
+    int BufferSizes[NumProcs];
+    MPI_Gather(&LocalBufferSize, 1, MPI_INT, BufferSizes, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    int Displacements[NumProcs];
+    int TotalN = 0;
+    if (MyRank==0) {
+        for (int p = 0; p < NumProcs; p++) TotalN += BufferSizes[p]/sizeof(Particle);
+        Displacements[0] = 0;
+        for (int p = 1; p < NumProcs; p++) Displacements[p] = Displacements[p-1] + BufferSizes[p-1];
+        *ParticleList = new Particle[TotalN];
+    }
+    MPI_Gatherv(PTR(LocalList), LocalBufferSize, MPI_BYTE, *ParticleList, BufferSizes, Displacements, MPI_BYTE, 0, MPI_COMM_WORLD);
+#ifdef MEX
+    thrust::sort(*ParticleList, (*ParticleList)+TotalN, ReorderingFunctor());
+#endif
+    *CurrentTotalN = TotalN;
+}
+
+
 #define numberoftries 10
 
 int main(int argc, char *argv[]) {
-    cerr << "Welcome to ETICS..." << endl;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &MyRank);
+    MPI_Comm_size(MPI_COMM_WORLD, &NumProcs);
+
+    if (MyRank==0) {
+        cerr << "Welcome to ETICS..." << endl;
 #ifdef MEX
-    cerr << "Using method: MEX" << endl;
-    cerr << "LMAX=" << LMAX << endl;
+        cerr << "Using method: MEX" << endl;
+        cerr << "LMAX=" << LMAX << endl;
 #elif defined(SCF)
-    cerr << "Using method: SCF" << endl;
-    cerr << "LMAX=" << LMAX << endl;
-    cerr << "NMAX=" << NMAX << endl;
+        cerr << "Using method: SCF" << endl;
+        cerr << "LMAX=" << LMAX << endl;
+        cerr << "NMAX=" << NMAX << endl;
 #endif
+    }
 
     string FileName;
     int DeviceID = 0;
 
     ParametersStruct Params;
+    // Instead of reading the input file with MyRank=0 and broadcast the result, we let every rank read the file. This probably saves ~20 lines of ugly MPI code.
     ParseInput(argc, argv, &Params);
-    N = Params.N;
-    FileName =Params.FileName;
-    Tcrit =Params.Tcrit;
-    ConstantStep =Params.ConstantStep;
-    DeviceID =Params.DeviceID;
+    N = Params.N; // total; will be divided by number of processes
+    FileName = Params.FileName;
+    Tcrit = Params.Tcrit;
+    ConstantStep = Params.ConstantStep;
+    DeviceID = Params.DeviceID;
     dT1 = Params.dT1;
     dT2 = Params.dT2;
 
@@ -215,46 +249,31 @@ int main(int argc, char *argv[]) {
         cerr << "Skipping call to cudaSetDevice." << endl;
     }
 
-     method::Init(N, 180, 64, 2605, 384);
-
     // Read an input file and initialize the global particle structure.
-    ReadICs(FileName, N, Params.Skip, &hostP);
+    Particle *FullList;
+    if (MyRank==0) ReadICs(FileName, N, Params.Skip, &FullList);
+
+    int LocalN = N / NumProcs;
+    int Remainder = N - LocalN*NumProcs;
+    if (MyRank==NumProcs-1) LocalN += Remainder;
+    P_h = new Particle[LocalN];
+    int BufferSizes[NumProcs];
+    int Displacements[NumProcs];
+    if (MyRank==0) {
+        for (int p = 0; p < NumProcs; p++) BufferSizes[p] = (N / NumProcs)*sizeof(Particle);
+        BufferSizes[NumProcs-1] += Remainder*sizeof(Particle);
+        Displacements[0] = 0;
+        for (int p = 1; p < NumProcs; p++) Displacements[p] = Displacements[p-1] + BufferSizes[p-1];
+    }
+    MPI_Scatterv(FullList, BufferSizes, Displacements, MPI_BYTE, P_h, LocalN*sizeof(Particle), MPI_BYTE, 0, MPI_COMM_WORLD); 
+
+    if (MyRank==0) free(FullList);
+    N = LocalN;
+
+    method::Init(N, 180, 64, 2605, 384);
+#warning hardcoded launch configuration
     InitilizeIntegratorMemory();
     CommitParticles();
-
-
-//     for (int i=0; i<10; i++) method::CalculateGravity(PTR(P), N, PTR(Potential), PTR(F0)); // heat up the GPU
-// //     K3Search(N);
-// //     exit(4);
-// 
-//     double total=0;
-// 
-//     for (int i=0; i<numberoftries; i++) {
-//         float milliseconds = 0;
-//         cudaEvent_t start, stop;
-//         cudaEventCreate(&start);
-//         cudaEventCreate(&stop);
-//         cudaEventRecord(start);
-//         method::CalculateGravity(PTR(P), N, PTR(Potential), PTR(F0));
-//         cudaEventRecord(stop);
-//         cudaEventSynchronize(stop);
-//         cudaEventElapsedTime(&milliseconds, start, stop);
-//         total += milliseconds;
-//     }
-//     total /= numberoftries;
-// 
-//         thrust::host_vector<vec3>   F0_host(F0);
-//         thrust::host_vector<double> PotHost(Potential);
-//     for (int i=0; i<N; i+=1000) {
-//         printf("%06d %+.16e %+.16e %+.16e %+.16e\n", i, F0_host[i].x, F0_host[i].y, F0_host[i].z, PotHost[i]);
-//     }
-//     printf("Time: %f\n", total);
-//     
-// //     OptimizeKernel4LaunchConfig();
-//     
-//     exit(0);
-//     
-
 
     // Calculate the forces from the initial data.
     method::CalculateGravity(PTR(P), N, PTR(Potential), PTR(F0));
@@ -265,7 +284,6 @@ int main(int argc, char *argv[]) {
     T  = 0;
     DBG_MACRO_INIT
     Step = CalculateStepSize();
-    DBG_MACRO_MSG("Finished [first] call to CalculateStepSize().")
 
     while (T <= Tcrit) {
         if (T >= NextOutput) {
@@ -273,10 +291,12 @@ int main(int argc, char *argv[]) {
             NextOutput += dT1;
         }
         if (T >= NextSnapshot) {
-#ifdef MEX
-            PrepareSnapshot(&P, hostP);
-#endif
-            WriteSnapshot(Params.Prefix, SnapNumber, hostP, N, T);
+            int CurrentTotalN;
+            PrepareSnapshot(&P, &FullList, &CurrentTotalN);
+            if (MyRank==0) {
+                WriteSnapshot(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+                free(FullList);
+            }
             SnapNumber++;
             NextSnapshot += dT2;
         }
@@ -300,5 +320,6 @@ int main(int argc, char *argv[]) {
         // Calculate the next step.
         Step = CalculateStepSize();
     }
+    MPI_Finalize();
     return 0;
 }
