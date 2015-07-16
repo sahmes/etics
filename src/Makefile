@@ -13,24 +13,27 @@ CUDAFLAGS += -arch=sm_$(GPUARCH) $(CFLAGS)
 
 CODELIB = libetics.a
 
-CODEOBJS = integrate.o io.o main.o mathaux.o scf.o
+# object files needed for the library and the standalone
+CODEOBJS1 = integrate.o mathaux.o scf.o
+
+# object files only needed for the standalone
+CODEOBJS2 = io.o ic.o main.o
 
 AR = ar ruv
 RANLIB = ranlib
-RM = rm
 
 all: $(CODELIB)
 
 clean:
-	$(RM) -f *.o *.a etics
+	$(RM) *.o *.a etics
 
-$(CODELIB): $(CODEOBJS)
-	$(RM) -f $@
-	$(AR) $@ $(CODEOBJS)
+$(CODELIB): $(CODEOBJS1)
+	$(NVCC) $(CUDAFLAGS) -dlink $(CODEOBJS1) -o dlink.o
+	$(AR) $@ $(CODEOBJS1) dlink.o
 	$(RANLIB) $@
 
-standalone: $(CODEOBJS)
-	 $(NVCC) $(LIBS) $(LINKFLAGS) $(CUDAFLAGS) -o etics $(CODEOBJS)
+standalone: $(CODEOBJS1) $(CODEOBJS2)
+	$(NVCC) $(LIBS) $(LINKFLAGS) $(CUDAFLAGS) -o etics $(CODEOBJS1) $(CODEOBJS2)
 
 .SUFFIXES: .cu .cpp .o
 

@@ -44,6 +44,7 @@
 
 #include "common.hpp"
 #include "io.hpp"
+#include "ic.hpp"
 #include "integrate.hpp"
 
 #ifdef MEX
@@ -55,6 +56,7 @@
 #endif
 
 using namespace std;
+using namespace etics;
 
 
 int MyRank, NumProcs;
@@ -251,7 +253,18 @@ int main(int argc, char *argv[]) {
 
     // Read an input file and initialize the global particle structure.
     Particle *FullList;
-    if (MyRank==0) ReadICs(FileName, N, Params.Skip, &FullList);
+    if (MyRank==0) {
+        if ((FileName.compare("_nofile_")==0) || (FileName.compare("_hernquist_")==0)) {
+            cout << "Generating a Hernquist sphere..." << endl;
+            etics::ic::hernquist(N, Params.Seed, &FullList);
+            cout << "Done." << endl;
+        }
+        else if (FileName.compare("_plummer_")==0) {
+            cout << "Plummer sphere is not implemented yet." << endl;
+            exit(1); // Plummer sphere not implemented yet
+        }
+        else ReadICs(FileName, N, Params.Skip, &FullList);
+    }
 
     int LocalN = N / NumProcs;
     int Remainder = N - LocalN*NumProcs;

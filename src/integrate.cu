@@ -2,6 +2,9 @@
 
 // only global variables, functions and structures related to the leapfrog integration; the force calculation routines are in mex.cu and scf.cu
 // this is basically auxiliary to main.cu
+
+// new idea: this should be a class, then you create one instance in main.cu and don't have these nasty globals!!
+
 #include <thrust/device_vector.h>
 #include "common.hpp"
 #include <iostream>

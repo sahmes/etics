@@ -66,6 +66,7 @@ class Particle {
 struct ParametersStruct {
     int N;
     std::string FileName;
+    int Seed;
     int Skip;
     Real dT1, dT2, Tcrit, ConstantStep;
     std::string Prefix;

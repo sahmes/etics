@@ -70,14 +70,16 @@ void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) 
     ofstream SnapshotFile;
     SnapshotFile.open(S);
     SnapshotFile << S << endl;
-    sprintf(S, "%d\n", N); SnapshotFile << S;
+    sprintf(S, "%06d\n", SnapNumber); SnapshotFile << S;
+    sprintf(S, "%06d\n", N); SnapshotFile << S;
     sprintf(S, "%.16E\n", T); SnapshotFile << S;
     for (int i = 0; i < N; i++) {
-#warning Snapshot has fake mass
-        sprintf(S, "%d 1E-6 %E %E %E %E %E %E\n", P_h[i].ID, P_h[i].pos.x, P_h[i].pos.y, P_h[i].pos.z, P_h[i].vel.x, P_h[i].vel.y, P_h[i].vel.z); SnapshotFile << S;
+        sprintf(S, "%06d%14.6e%14.6e%14.6e%14.6e%14.6e%14.6e%14.6e\n", P_h[i].ID, P_h[i].m, P_h[i].pos.x, P_h[i].pos.y, P_h[i].pos.z, P_h[i].vel.x, P_h[i].vel.y, P_h[i].vel.z); SnapshotFile << S;
     }
     SnapshotFile.close();
 }
+
+#include <boost/algorithm/string.hpp>
 
 #define THROW_EXCEPTION(str, stat) {cerr << str << endl; exit((stat));}
 void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
@@ -105,6 +107,19 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
 
     P.FileName = pt.get<string>("Filename", "\n");
     if (P.FileName == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
+
+    P.Seed = INT_MIN;
+    if ((P.FileName[0]=='_') && (P.FileName.rfind("_") > 0)) {
+        int Break = P.FileName.rfind("_") + 1;
+        string SeedStr = P.FileName.substr(Break, P.FileName.length() - Break);
+        int SeedInt;
+        istringstream iss(SeedStr);
+        iss >> ws >> P.Seed >> ws;
+        if(!iss.eof()) THROW_EXCEPTION("Could not understand random seed (in Filename).", 1)
+        P.FileName = P.FileName.substr(0, Break);
+    }
+    if (P.Seed == INT_MIN) P.Seed = (int)time(NULL);
+
     P.Skip = pt.get<int>("Skip", 0);
     P.Prefix = pt.get<string>("Prefix", "");
     P.DeviceID = pt.get<int>("device", -1);
