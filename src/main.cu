@@ -172,7 +172,7 @@ struct PotentialEnergyFunctor {
 };
 
 Real PotentialEnergy() {
-    return thrust::inner_product(
+    return 0.5*thrust::inner_product(
       P.begin(), P.end(),
       Potential.begin(),
       (Real)0,
