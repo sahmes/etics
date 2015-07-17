@@ -10,4 +10,3 @@ This is a partial version, many features have already been implemented and will 
 * No AMUSE interface
 * Problem for particles with |theta| << 1
 * Hardcoded launch configuration
-* No initial condition generator
