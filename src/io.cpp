@@ -77,7 +77,6 @@ void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) 
     sprintf(S, "%s%04d", Prefix.c_str(), SnapNumber);
     ofstream SnapshotFile;
     SnapshotFile.open(S);
-    SnapshotFile << S << endl;
     sprintf(S, "%06d\n", SnapNumber); SnapshotFile << S;
     sprintf(S, "%06d\n", N); SnapshotFile << S;
     sprintf(S, "%.16E\n", T); SnapshotFile << S;

@@ -15,7 +15,7 @@ namespace etics {
         double trapzd(double (*func)(double), double a, double b, int n);
         double qromb(double (*func)(double), double a, double b);
         double xrandom(double a, double b);
-        double f(double E2), pot(double r), radpsi(double p), drho2(double u);
+        double f(double E2), drho2(double u);
     }
 }
 
@@ -117,7 +117,12 @@ double etics::ic::drho2(double u) {
     double p = E - 0.25*u*u;
     double r;
     if (p <= 0) return 0;
-    else r = radpsi(p);
+    else {
+        double p1 = 1/p;
+        double b0 = 0.5*(2-p1);
+        double c0 = (1-p1);
+        r = -b0 + sqrt(b0*b0 - c0);
+    }
 
     double r2 = r*r, r3 = r2*r;
 
@@ -134,28 +139,17 @@ double etics::ic::drho2(double u) {
     return drho2r/(dp1*dp1) - drho1r/(dp1*dp1*dp1)*dp2;
 }
 
-double etics::ic::pot(double r) {
-    return -1.0/(1.0 + r);
-}
-
-double etics::ic::radpsi(double p) {
-    double p1 = 1/p;
-    double b0 = 0.5*(2-p1);
-    double c0 = (1-p1);
-    return -b0 + sqrt(b0*b0 - c0);
-}
-
 void etics::ic::hernquist(int N, int Seed, Particle **ParticleList) {
     using namespace etics::ic;
     double x, y, z, vx, vy, vz;
-    double fmax, f0, f1, v2, vmax, vmax2;
+    double fmax, f0, f1, v2, vmax, vmax2, Ep=0, Ek=0;
 
     srand(Seed);
 
     *ParticleList = new Particle[N];
 
     for(int i = 0; i < N; i++) {
-        double eta = xrandom(0.0,1.0);
+        double eta = xrandom(0.0, 1.0);
         double radius = sqrt(eta)/(1-sqrt(eta));
         double phi = xrandom(0.0, 2*M_PI);
         double cth = xrandom(-1.0, 1.0);
@@ -163,7 +157,8 @@ void etics::ic::hernquist(int N, int Seed, Particle **ParticleList) {
         x = radius*sth*cos(phi);
         y = radius*sth*sin(phi);
         z = radius*cth;
-        double psi0 = -pot(radius);
+        double psi0 = 1/(1 + radius);
+        Ep += -psi0;
         vmax2 = 2.0*psi0;
         vmax = sqrt(vmax2);
         fmax = f(psi0);
@@ -180,6 +175,7 @@ void etics::ic::hernquist(int N, int Seed, Particle **ParticleList) {
             f0 = f(psi0 - 0.5*v2);
             f1 = fmax*xrandom(0.0, 1.0);
         }
+        Ek += 0.5*v2;
         Particle p;
         p.m = 1.0/N;
         p.pos = vec3(x, y, z);
@@ -188,7 +184,14 @@ void etics::ic::hernquist(int N, int Seed, Particle **ParticleList) {
         p.Status = 0;
         p.CalculateR2();
         (*ParticleList)[i] = p;
-//         printf("%14.6e%14.6e%14.6e%14.6e%14.6e%14.6e\n", x, y, z, vx, vy, vz);
+    }
+    Ep /= 2*N; Ek /= N;
+    double E = Ep + Ek;
+    double RadiusFactor = -4*E; // should be close to 1/3
+    double VelocityFactor = 1/sqrt(-4*E); // should be close to sqrt(3)
+    for(int i = 0; i < N; i++) {
+        (*ParticleList)[i].pos = (*ParticleList)[i].pos * RadiusFactor;
+        (*ParticleList)[i].vel = (*ParticleList)[i].vel * VelocityFactor;
     }
 #warning you must centralize yourself!!!
 }
