@@ -400,7 +400,3 @@ void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_
     PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
     cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
 }
-
-Real etics::scf::PotentialEnergy() {
-    return 8;
-}

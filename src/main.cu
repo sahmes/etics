@@ -41,6 +41,7 @@
 #include <thrust/sort.h>
 //#include <thrust/remove.h>
 #include <thrust/partition.h>
+#include <thrust/inner_product.h>
 
 #include "common.hpp"
 #include "io.hpp"
@@ -159,17 +160,30 @@ struct KineticEnergyFunctor {
 
 Real KineticEnergy() {
     return thrust::transform_reduce(
-      P.begin(),
-      P.end(),
+      P.begin(), P.end(),
       KineticEnergyFunctor(),
       (Real)0, // It must be clear to the function that this zero is a Real.
       thrust::plus<Real>()
     );
 }
 
+struct PotentialEnergyFunctor {
+    __host__ __device__ Real operator() (const Particle &p, const Real &Potential) const {return p.m*Potential;}
+};
+
+Real PotentialEnergy() {
+    return thrust::inner_product(
+      P.begin(), P.end(),
+      Potential.begin(),
+      (Real)0,
+      thrust::plus<Real>(),
+      PotentialEnergyFunctor()
+    );
+}
+
 void DisplayInformation(thrust::device_vector<Particle> *P, Real *Potential) {
     Real Ek = KineticEnergy();
-    Real Ep = method::PotentialEnergy();
+    Real Ep = PotentialEnergy();
     Real Energy = Ek + Ep;
 
     Real TotalEnergy;
@@ -228,14 +242,14 @@ int main(int argc, char *argv[]) {
 #endif
     }
 
-    string FileName;
+    string Filename;
     int DeviceID = 0;
 
     ParametersStruct Params;
     // Instead of reading the input file with MyRank=0 and broadcast the result, we let every rank read the file. This probably saves ~20 lines of ugly MPI code.
     ParseInput(argc, argv, &Params);
     N = Params.N; // total; will be divided by number of processes
-    FileName = Params.FileName;
+    Filename = Params.Filename;
     Tcrit = Params.Tcrit;
     ConstantStep = Params.ConstantStep;
     DeviceID = Params.DeviceID;
@@ -254,16 +268,16 @@ int main(int argc, char *argv[]) {
     // Read an input file and initialize the global particle structure.
     Particle *FullList;
     if (MyRank==0) {
-        if ((FileName.compare("_nofile_")==0) || (FileName.compare("_hernquist_")==0)) {
+        if ((Filename.compare("_nofile_")==0) || (Filename.compare("_hernquist_")==0)) {
             cout << "Generating a Hernquist sphere..." << endl;
             etics::ic::hernquist(N, Params.Seed, &FullList);
             cout << "Done." << endl;
         }
-        else if (FileName.compare("_plummer_")==0) {
+        else if (Filename.compare("_plummer_")==0) {
             cout << "Plummer sphere is not implemented yet." << endl;
             exit(1); // Plummer sphere not implemented yet
         }
-        else ReadICs(FileName, N, Params.Skip, &FullList);
+        else ReadICs(Filename, N, Params.Skip, &FullList);
     }
 
     int LocalN = N / NumProcs;

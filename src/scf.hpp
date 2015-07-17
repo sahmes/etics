@@ -14,6 +14,5 @@ namespace etics {
         void SendCoeffsToGPU(Complex *A_h);
         void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
         void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
-        Real PotentialEnergy();
     }
 }

@@ -1,11 +1,18 @@
 GPUARCH ?= 35
 NVCC ?= nvcc
+BOOSTINC ?= /usr/local/sage/local/include
 
 METHOD ?= SCF
 LMAX ?= 6
 NMAX ?= 10
 
-CFLAGS := -D$(METHOD) -DLMAX=$(LMAX) -DNMAX=$(NMAX) -O3 -I/usr/local/sage/local/include
+ifeq ($(BOOSTINC), NOBOOST)
+	BOOST = -DNOBOOST
+else
+	BOOST = -I$(BOOSTINC)
+endif
+
+CFLAGS := -D$(METHOD) -DLMAX=$(LMAX) -DNMAX=$(NMAX) $(BOOST) -O3
 LIBS = -lm -lmpi
 CXXFLAGS += $(CFLAGS)
 LDFLAGS  += -lm $(MUSE_LD_FLAGS)
@@ -22,7 +29,7 @@ CODEOBJS2 = io.o ic.o main.o
 AR = ar ruv
 RANLIB = ranlib
 
-all: $(CODELIB)
+all: $(CODELIB) standalone
 
 clean:
 	$(RM) *.o *.a etics
@@ -31,6 +38,8 @@ $(CODELIB): $(CODEOBJS1)
 	$(NVCC) $(CUDAFLAGS) -dlink $(CODEOBJS1) -o dlink.o
 	$(AR) $@ $(CODEOBJS1) dlink.o
 	$(RANLIB) $@
+
+library: $(CODELIB)
 
 standalone: $(CODEOBJS1) $(CODEOBJS2)
 	$(NVCC) $(LIBS) $(LINKFLAGS) $(CUDAFLAGS) -o etics $(CODEOBJS1) $(CODEOBJS2)

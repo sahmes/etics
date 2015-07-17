@@ -1,20 +1,28 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
-#include <boost/property_tree/ptree.hpp>
-#include <boost/property_tree/ini_parser.hpp>
+#include <cstdio>
+#include <climits>
+#include <fstream>
+#include <sstream>
+// #include <sstream>
 #define __host__
 #define __device__
 #include "common.hpp"
 
+#ifndef NOBOOST
+    #include <boost/property_tree/ptree.hpp>
+    #include <boost/property_tree/ini_parser.hpp>
+#endif
+
 using namespace std;
 
-void ReadICs(string FileName, int N, int Skip, Particle **P_h) {
+void ReadICs(string Filename, int N, int Skip, Particle **P_h) {
 
     *P_h = new Particle[N];
 
     string Line;
-    ifstream InputFile(FileName.c_str());
+    ifstream InputFile(Filename.c_str());
     int LineNum;
     for (LineNum = 0; LineNum < Skip; LineNum++) getline(InputFile, Line);
     int i = 0;
@@ -52,7 +60,7 @@ void ReadICs(string FileName, int N, int Skip, Particle **P_h) {
         }
         InputFile.close();
     } else {
-        cerr << "Can't open file" << FileName << "." << endl;
+        cerr << "Can't open file" << Filename << "." << endl;
         exit(1);
     }
     if (i < N) {
@@ -79,11 +87,10 @@ void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) 
     SnapshotFile.close();
 }
 
-#include <boost/algorithm/string.hpp>
-
 #define THROW_EXCEPTION(str, stat) {cerr << str << endl; exit((stat));}
 void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     ParametersStruct P;
+#ifndef NOBOOST
     if (argc < 2) THROW_EXCEPTION("Usage: etics [FILE]...", 1)
     ifstream TestFileObject(argv[1]);
     if (!TestFileObject) THROW_EXCEPTION("Problem reading file...", 1)
@@ -105,20 +112,8 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     P.ConstantStep = pt.get<Real>("StepSize", -1);
     if (P.ConstantStep < 0) THROW_EXCEPTION("Could not read step size (StepSize) from ini file.", 1)
 
-    P.FileName = pt.get<string>("Filename", "\n");
-    if (P.FileName == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
-
-    P.Seed = INT_MIN;
-    if ((P.FileName[0]=='_') && (P.FileName.rfind("_") > 0)) {
-        int Break = P.FileName.rfind("_") + 1;
-        string SeedStr = P.FileName.substr(Break, P.FileName.length() - Break);
-        int SeedInt;
-        istringstream iss(SeedStr);
-        iss >> ws >> P.Seed >> ws;
-        if(!iss.eof()) THROW_EXCEPTION("Could not understand random seed (in Filename).", 1)
-        P.FileName = P.FileName.substr(0, Break);
-    }
-    if (P.Seed == INT_MIN) P.Seed = (int)time(NULL);
+    P.Filename = pt.get<string>("Filename", "\n");
+    if (P.Filename == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
 
     P.Skip = pt.get<int>("Skip", 0);
     P.Prefix = pt.get<string>("Prefix", "");
@@ -136,5 +131,31 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
         P.DeviceID = atoi(DeviceIDStr);
         if ((P.DeviceID==0) && (strcmp(DeviceIDStr, "0")!=0)) THROW_EXCEPTION("Error understanding device number.", 1)
     }
+#else
+    // If no BOOST, we include a file with the parameters and compile it.
+    int N, Skip = 0, DeviceID = -1;
+    Real dT1, dT2, Tcrit, StepSize;
+    std::string Filename, Prefix = "";
+    #include "noboost.inc"
+    P.N = N;
+    P.Filename = Filename;
+    P.Skip = Skip;
+    P.dT1 = dT1;
+    P.dT2 = dT2;
+    P.Tcrit = Tcrit;
+    P.ConstantStep = StepSize;
+    P.DeviceID = DeviceID;
+#endif
+    P.Seed = INT_MIN;
+    if ((P.Filename[0]=='_') && (P.Filename.rfind("_") > 0)) {
+        int Break = P.Filename.rfind("_") + 1;
+        string SeedStr = P.Filename.substr(Break, P.Filename.length() - Break);
+        int SeedInt;
+        istringstream iss(SeedStr);
+        iss >> ws >> P.Seed >> ws;
+        if(!iss.eof()) THROW_EXCEPTION("Could not understand random seed (in Filename).", 1)
+        P.Filename = P.Filename.substr(0, Break);
+    }
+    if (P.Seed == INT_MIN) P.Seed = (int)time(NULL);
     *Params = P;
 }
