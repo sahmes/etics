@@ -21,10 +21,10 @@ CUDAFLAGS += -arch=sm_$(GPUARCH) $(CFLAGS)
 CODELIB = libetics.a
 
 # object files needed for the library and the standalone
-CODEOBJS1 = integrate.o mathaux.o scf.o
+CODEOBJS1 = integrate.o mathaux.o scf.o ic.o
 
 # object files only needed for the standalone
-CODEOBJS2 = io.o ic.o main.o
+CODEOBJS2 = io.o main.o
 
 AR = ar ruv
 RANLIB = ranlib
