@@ -272,10 +272,17 @@ int main(int argc, char *argv[]) {
             cout << "Generating a Hernquist sphere..." << endl;
             etics::ic::hernquist(N, Params.Seed, &FullList);
             cout << "Done." << endl;
-        }
-        else if (Filename.compare("_plummer_")==0) {
+        } else if (Filename.compare("_plummer_")==0) {
             cout << "Plummer sphere is not implemented yet." << endl;
             exit(1); // Plummer sphere not implemented yet
+        } else if (Filename.compare("_launch_config_")==0) {
+            if (NumProcs > 1) {
+                cerr << "Can only optimize launch configuration when a single MPI process is running!" << endl;
+                exit(1);
+            }
+            int k3gs, k3bs, k4gs, k4bs;
+            scf::OptimizeLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
+            return 0;
         }
         else ReadICs(Filename, N, Params.Skip, &FullList);
     }
