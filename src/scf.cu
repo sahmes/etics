@@ -62,6 +62,11 @@ void etics::scf::InitializeCache(int N) { // not sure why it's a separate functi
     cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
 }
 
+void etics::scf::UpdateN(int N) {
+    Cache_h.N = N;
+    cudaMemcpyToSymbol(Cache, &Cache_h, sizeof(CacheStruct));
+}
+
 __global__ void etics::scf::LoadParticlesToCache(Particle *P, int N) { // formerly "Kernel1"
     int i = threadIdx.x + blockIdx.x *  blockDim.x;
     while (i < N) {

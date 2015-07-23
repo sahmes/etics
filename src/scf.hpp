@@ -4,6 +4,7 @@
 namespace etics {
     namespace scf {
         void InitializeCache(int N);
+        void UpdateN(int N);
         __global__ void LoadParticlesToCache(Particle *P, int N);
         __global__ void CalculatePhi0l(int l);
         __global__ void CalculateCoefficientsPartial(int n, int l, Complex *PartialSum);
