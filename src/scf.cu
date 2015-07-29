@@ -427,8 +427,6 @@ void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, i
     *k4bs_new = blockSize;
 }
 
-class DeviceTimer;
-class HostTimer;
 void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
 // need to make sure we are on a single node for this to work
     cout << "We are going to try to optimize the launch configuration for the main ETICS kernels by a brute force search." << endl;
