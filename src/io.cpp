@@ -31,13 +31,13 @@ void ReadICs(string Filename, int N, int Skip, Particle **P_h) {
         {
             Real m, x, y, z, vx, vy, vz;
             Particle p;
-// #ifdef DOUBLE_PRECISION
+// #ifdef ETICS_DOUBLE_PRECISION
 //             int Count = sscanf(Line.c_str(), "%*d %*f %lf %lf %lf %lf %lf %lf", &x, &y, &z, &vx, &vy, &vz);
 // #else
 //             int Count = sscanf(Line.c_str(), "%*d %*f %f %f %f %f %f %f", &x, &y, &z, &vx, &vy, &vz);
 // #endif
 //             if (Count != 6) {
-#ifdef DOUBLE_PRECISION
+#ifdef ETICS_DOUBLE_PRECISION
             int Count = sscanf(Line.c_str(), "%*d %lf %lf %lf", &x, &y, &z);
 #else
             int Count = sscanf(Line.c_str(), "%*d %f %f %f", &x, &y, &z);

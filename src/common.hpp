@@ -5,12 +5,12 @@
 // #define A_ON_SHARED_MEMORY
 
 
-#if defined SINGLE_PRECISION && defined DOUBLE_PRECISION
+#if defined ETICS_SINGLE_PRECISION && defined ETICS_DOUBLE_PRECISION
     #error Contradictory precision flags!
 #endif
 
-#ifndef SINGLE_PRECISION
-    #define DOUBLE_PRECISION
+#ifndef ETICS_SINGLE_PRECISION
+    #define ETICS_DOUBLE_PRECISION
     #define Real double
     #define MPI_ETICS_REAL MPI_DOUBLE
 #else

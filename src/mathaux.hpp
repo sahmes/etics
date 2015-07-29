@@ -1,7 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include <cuComplex.h>
-#ifdef DOUBLE_PRECISION
+#ifdef ETICS_DOUBLE_PRECISION
     #define Complex      cuDoubleComplex
     #define make_Complex make_cuDoubleComplex
     #define Complex_add  cuCadd
