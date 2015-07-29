@@ -427,6 +427,8 @@ void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, i
     *k4bs_new = blockSize;
 }
 
+class DeviceTimer;
+class HostTimer;
 void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
 // need to make sure we are on a single node for this to work
     cout << "We are going to try to optimize the launch configuration for the main ETICS kernels by a brute force search." << endl;
@@ -497,19 +499,16 @@ void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new
             BlockSize_arr[i]=k3bs; GridSize_arr[i]=k3gs;
             for (int k=0; k<numberoftries; k++) {
                 LoadParticlesToCache<<<128,128>>>(ParticleList, N); // need to clear the cache
-                float ElapsedTime = 0;
-                cudaEvent_t start, stop;
-                cudaEventCreate(&start);
-                cudaEventCreate(&stop);
-                cudaEventRecord(start);
+                DeviceTimer Timer;
+                Timer.Start();
 
                 CalculateCoefficients(A_h);
 
-                cudaEventRecord(stop);
-                cudaEventSynchronize(stop);
-                cudaEventElapsedTime(&ElapsedTime, start, stop);
-                Average += ElapsedTime;
-                StandardDeviation += ElapsedTime*ElapsedTime;
+                Timer.Stop();
+
+                double Milliseconds = Timer.Difference()*1000;
+                Average += Milliseconds;
+                StandardDeviation += Milliseconds*Milliseconds;
             }
             Average /= numberoftries;
             StandardDeviation = sqrt(StandardDeviation/numberoftries - Average*Average);

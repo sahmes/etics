@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-
+#include <time.h>
 // A_ON_SHARED_MEMORY moves the A structure (after it has been calculated) from constant to shared memory. This might be faster, or not.
 // #define A_ON_SHARED_MEMORY
 
@@ -72,3 +72,53 @@ struct ParametersStruct {
     std::string Prefix;
     int DeviceID;
 };
+
+#define ETICS_MY_CLOCK CLOCK_MONOTONIC
+class HostTimer {
+    timespec StartTime, StopTime;
+  public:
+    void Start() {
+        clock_gettime(ETICS_MY_CLOCK, &StartTime);
+    }
+    void Stop() {
+        clock_gettime(ETICS_MY_CLOCK, &StopTime);
+    }
+    double Difference() {
+        timespec TimeDiff;
+        if ((StopTime.tv_nsec - StartTime.tv_nsec) < 0) {
+            TimeDiff.tv_sec  = StopTime.tv_sec - StartTime.tv_sec - 1;
+            TimeDiff.tv_nsec = 1000000000 + StopTime.tv_nsec - StartTime.tv_nsec;
+        } else {
+            TimeDiff.tv_sec  = StopTime.tv_sec - StartTime.tv_sec;
+            TimeDiff.tv_nsec = StopTime.tv_nsec - StartTime.tv_nsec;
+        }
+        return (double)TimeDiff.tv_sec + ((double)TimeDiff.tv_nsec)*1.0e-9;
+    }
+};
+
+#ifdef __CUDACC__
+class DeviceTimer {
+    cudaEvent_t StartTime, StopTime;
+  public:
+    DeviceTimer() {
+        cudaEventCreate(&StartTime);
+        cudaEventCreate(&StopTime);
+    }
+    ~DeviceTimer() {
+        cudaEventDestroy(StartTime);
+        cudaEventDestroy(StopTime);
+    }
+    void Start() {
+        cudaEventRecord(StartTime);
+    }
+    void Stop() {
+        cudaEventRecord(StopTime);
+        cudaEventSynchronize(StopTime);
+    }
+    double Difference(){
+        float TimeDiff;
+        cudaEventElapsedTime(&TimeDiff, StartTime, StopTime);
+        return (double)TimeDiff * 1.0e-3;
+    }
+};
+#endif
