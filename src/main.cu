@@ -59,74 +59,8 @@
 using namespace std;
 using namespace etics;
 
-
-int MyRank, NumProcs;
-
-/////////////////////////////////////// DBG
-#include <sys/timeb.h>
-int AccurateGetTime() {
-    timeb tb;
-    ftime(&tb);
-    return tb.millitm + (tb.time & 0xfffff) * 1000;
-}
-
-int AccurateTimeDiff(int End, int Start) {
-    int Span = End - Start;
-    if (Span < 0) Span += 0x100000 * 1000;
-    return Span;
-}
-int DBG_EVENT_START;
-int DBG_EVENT_END;
-int DBG_EVENT_CALLS = 0;
-
-
-//#define DBG_SUPPRESS_OUTPUT
-
-#define DBG_MACRO_EXIT {exit(1);}
-#define DBG_MACRO_SKIP {return 0;}
-#ifndef DBG_SUPPRESS_OUTPUT
-#define DBG_CERR cerr
-#define DBG_STDERR stderr
-#define DBG_MACRO_INIT {                                                       \
-    DBG_EVENT_CALLS++;                                                         \
-    fprintf(DBG_STDERR, "(%d) Initializing CPU clock\n", DBG_EVENT_CALLS);     \
-    DBG_EVENT_START = AccurateGetTime();                                       \
-}
-#define DBG_MACRO_MSG(MSG) {                                                   \
-    DBG_EVENT_END = AccurateGetTime();                                         \
-    fprintf(DBG_STDERR, "(%d) Previous event time: %d ms\n", DBG_EVENT_CALLS,  \
-      AccurateTimeDiff(DBG_EVENT_END, DBG_EVENT_START));                       \
-    DBG_CERR << MSG << endl;                                                   \
-}
-cudaEvent_t DBG_CUDA_EVENT_START, DBG_CUDA_EVENT_END;
-float DBG_CUDA_ELAPSED_TIME;
-#define DBG_MACRO_CUDA_INIT {                                                  \
-    DBG_EVENT_CALLS++;                                                         \
-    fprintf(DBG_STDERR, "(%d) Initializing GPU clock\n", DBG_EVENT_CALLS);     \
-    cudaEventCreate(&DBG_CUDA_EVENT_START);                                    \
-    cudaEventCreate(&DBG_CUDA_EVENT_END);                                      \
-    cudaEventRecord(DBG_CUDA_EVENT_START, 0);                                  \
-}
-#define DBG_MACRO_CUDA_MSG(MSG) {                                              \
-    cudaEventRecord(DBG_CUDA_EVENT_END, 0);                                    \
-    cudaEventSynchronize(DBG_CUDA_EVENT_END);                                  \
-    cudaEventElapsedTime(&DBG_CUDA_ELAPSED_TIME, DBG_CUDA_EVENT_START,         \
-      DBG_CUDA_EVENT_END);                                                     \
-    fprintf(DBG_STDERR, "(%d) Previous event time: %.2f ms\n", DBG_EVENT_CALLS,\
-      DBG_CUDA_ELAPSED_TIME);                                                  \
-    DBG_CERR << MSG << endl;                                                   \
-}
-#else
-ostream DBG_CERR(0);
-FILE *DBG_STDERR = fopen("/dev/null", "w");
-#define DBG_MACRO_INIT
-#define DBG_MACRO_MSG(MSG)
-#define DBG_MACRO_CUDA_INIT
-#define DBG_MACRO_CUDA_MSG(MSG)
-#endif
-/////////////////////////////////////// DBG
-
 // GLOBAL VARIABLES
+int MyRank, NumProcs;
 extern Real ConstantStep;
 extern Real T, Step, dT1, dT2, Tcrit;
 extern int N;
@@ -316,7 +250,6 @@ int main(int argc, char *argv[]) {
     // More initializations.
     Real NextOutput = 0, NextSnapshot = 0;
     T  = 0;
-    DBG_MACRO_INIT
     Step = CalculateStepSize();
 
     while (T <= Tcrit) {

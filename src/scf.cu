@@ -408,9 +408,6 @@ void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_
     cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
 }
 
-
-
-
 void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
     int blockSize;
     int minGridSize;
@@ -469,6 +466,7 @@ void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new
     MaxBS = (MaxBS>DeviceProperties.maxThreadsPerBlock)?(DeviceProperties.maxThreadsPerBlock):(MaxBS);
 
     Particle *ParticleList, *ParticleList_h;
+    cout << "Generating initial conditions (this may take a while)." << endl;
     etics::ic::hernquist(N, 0, &ParticleList_h);
     cudaMalloc((void**)&ParticleList, N * sizeof(Particle));
     cudaMemcpy(ParticleList, ParticleList_h, N * sizeof(Particle), cudaMemcpyHostToDevice);
