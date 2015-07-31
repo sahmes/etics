@@ -424,6 +424,64 @@ void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, i
     *k4bs_new = blockSize;
 }
 
+namespace etics {
+    namespace scf {
+        void TestK3(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success);
+        void TestK4(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success);
+    }
+}
+
+void etics::scf::TestK3(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success) {
+    double Average_tmp=0, StandardDeviation_tmp = 0;
+    for (int k=0; k<numberoftries; k++) {
+        LoadParticlesToCache<<<128,128>>>(ParticleList, N); // need to clear the cache
+        DeviceTimer Timer;
+        Timer.Start();
+
+        CalculateCoefficients(A_h);
+
+        Timer.Stop();
+        double Milliseconds = Timer.Difference()*1000;
+        Average_tmp += Milliseconds;
+        StandardDeviation_tmp += Milliseconds*Milliseconds;
+    }
+    Average_tmp /= numberoftries;
+    StandardDeviation_tmp = sqrt(StandardDeviation_tmp/numberoftries - Average_tmp*Average_tmp);
+    *Average = Average_tmp;
+    *StandardDeviation = StandardDeviation_tmp;
+    double A000 = A_h[0].x;
+    *Success = (0.8*A000 < A_h[0].x) && (A_h[0].x < 1.2*A000); // very rough success criterion.
+}
+
+
+void etics::scf::TestK4(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success) {
+    double Average_tmp=0, StandardDeviation_tmp = 0;
+#warning need to make sure A_h is loaded to GPU
+    SendCoeffsToGPU(A_h);
+    double *Potential;
+    vec3 *F;
+    cudaMalloc((void**)&Potential, N * sizeof(Real));
+    cudaMalloc((void**)&F, N * sizeof(vec3));
+
+    for (int k=0; k<numberoftries; k++) {
+        LoadParticlesToCache<<<128,128>>>(ParticleList, N); // need to clear the cache
+        DeviceTimer Timer;
+        Timer.Start();
+
+        CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
+
+        Timer.Stop();
+        double Milliseconds = Timer.Difference()*1000;
+        Average_tmp += Milliseconds;
+        StandardDeviation_tmp += Milliseconds*Milliseconds;
+    }
+    Average_tmp /= numberoftries;
+    StandardDeviation_tmp = sqrt(StandardDeviation_tmp/numberoftries - Average_tmp*Average_tmp);
+    *Average = Average_tmp;
+    *StandardDeviation = StandardDeviation_tmp;
+    *Success = true; // bahhh
+}
+
 void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
 // need to make sure we are on a single node for this to work
     cout << "We are going to try to optimize the launch configuration for the main ETICS kernels by a brute force search." << endl;
@@ -473,7 +531,22 @@ void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new
 
     int k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp;
     GuessLaunchConfiguration(N, &k3gs_tmp, &k3bs_tmp, &k4gs_tmp, &k4bs_tmp);
+    printf("Recommended launch configuration for Kernel3 (CalculateCoefficientsPartial): <<<%04d,%03d>>>\n", k3gs_tmp, k3bs_tmp);
     Init(N, k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp);
+    double Average=0, StandardDeviation=0;
+    cout << "Testing..." << endl;
+    bool Success;
+    TestK3(ParticleList, N, numberoftries, &Average, &StandardDeviation, &Success);
+
+    printf("CalculateCoefficients executed in %.2f ms +/- %.2f; the calculation result was A000=%.3e\n", Average, StandardDeviation, A_h[0].x);
+
+
+    printf("Recommended launch configuration for Kernel4: <<<%04d,%03d>>>\n", k4gs_tmp, k4bs_tmp);
+    cout << "Testing..." << endl;
+    TestK4(ParticleList, N, numberoftries, &Average, &StandardDeviation, &Success);
+
+    printf("CalculateCoefficients executed in %.2f ms +/- %.2f.\n", Average, StandardDeviation);
+
 
     free(PartialSum_h);
     cudaFree(PartialSum);
@@ -483,36 +556,20 @@ void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new
     int TotalTests = RealMaxGS * (MaxBS/32);
     double Average_arr[TotalTests], StandardDeviation_arr[TotalTests];
     int BlockSize_arr[TotalTests], GridSize_arr[TotalTests];
-    bool Success_arr[TotalTests];
 
     int i = 0;
+    Success = true;
     for (k3bs = MinBS; k3bs <= MaxBS; k3bs += WarpSize) {
+        if (!Success) break;
         int MinGS = Cores/k3bs;
         int MaxGS = (N+k3bs-1)/k3bs;
         MaxGS = (MaxGS>RealMaxGS)?(RealMaxGS):(MaxGS);
         for (k3gs = MinGS; k3gs <= MaxGS; k3gs++) {
-            double Average=0, StandardDeviation=0;
-            BlockSize_arr[i]=k3bs; GridSize_arr[i]=k3gs;
-            for (int k=0; k<numberoftries; k++) {
-                LoadParticlesToCache<<<128,128>>>(ParticleList, N); // need to clear the cache
-                DeviceTimer Timer;
-                Timer.Start();
-
-                CalculateCoefficients(A_h);
-
-                Timer.Stop();
-
-                double Milliseconds = Timer.Difference()*1000;
-                Average += Milliseconds;
-                StandardDeviation += Milliseconds*Milliseconds;
-            }
-            Average /= numberoftries;
-            StandardDeviation = sqrt(StandardDeviation/numberoftries - Average*Average);
-
-            if ((0.8*A000 < A_h[0].x) && (A_h[0].x < 1.2*A000)) Success_arr[i] = true; // we approve if the result matches the analytical prediction within 20%
-            else Success_arr[i] = false;
-            printf("<<<%03d,%04d>>> %7.2f %7.2f %.3e\n", k3bs, k3gs, Average, StandardDeviation, A_h[0].x);
+            if (!Success) break;
+            TestK3(ParticleList, N, numberoftries, &Average, &StandardDeviation, &Success);
+            printf("<<<%04d,%03d>>> %7.2f %7.2f %.3e\n", k3gs, k3bs, Average, StandardDeviation, A_h[0].x);
             fflush(stdout);
+            BlockSize_arr[i]=k3bs; GridSize_arr[i]=k3gs;
             Average_arr[i] = Average;
             StandardDeviation_arr[i] = StandardDeviation;
             i++;
@@ -520,14 +577,14 @@ void etics::scf::OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new
 
     }
 
-    int MaxIndex = i;
+    int MaxIndex = Success?(i-1):i;
     int IndexOfMininum = 0;
-    for (int i = 0; i < MaxIndex; i++) if ((Average_arr[i] < Average_arr[IndexOfMininum]) && (Success_arr[i])) IndexOfMininum = i;
-    printf("Fastest configuration is: <<<%03d,%04d>>>\n", BlockSize_arr[IndexOfMininum], GridSize_arr[IndexOfMininum]);
+    for (int i = 0; i < MaxIndex; i++) if (Average_arr[i] < Average_arr[IndexOfMininum]) IndexOfMininum = i;
+    printf("Fastest configuration is: <<<%04d,%03d>>>\n", GridSize_arr[IndexOfMininum], BlockSize_arr[IndexOfMininum]);
     cout << "Other options:" << endl;
     for (int i = 0; i < MaxIndex; i++) {
         if ((Average_arr[i]-StandardDeviation_arr[i] < Average_arr[IndexOfMininum]+StandardDeviation_arr[i]) && (i!=IndexOfMininum)) {
-            printf("    <<<%03d,%04d>>>\n", BlockSize_arr[i], GridSize_arr[i]);
+            printf("    <<<%04d,%03d>>>\n", GridSize_arr[i], BlockSize_arr[i]);
         }
     }
 }
