@@ -4,6 +4,10 @@
 // A_ON_SHARED_MEMORY moves the A structure (after it has been calculated) from constant to shared memory. This might be faster, or not.
 // #define A_ON_SHARED_MEMORY
 
+#ifndef __CUDACC__
+    #define __host__
+    #define __device__
+#endif
 
 #if defined ETICS_SINGLE_PRECISION && defined ETICS_DOUBLE_PRECISION
     #error Contradictory precision flags!

@@ -15,11 +15,10 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
-#define __host__
-#define __device__
 #include "common.hpp"
 #include "ic.hpp"
 
+// Internal functions
 namespace etics {
     namespace ic {
         double E;
@@ -125,7 +124,7 @@ double etics::ic::xrandom() {
     return xrandom(0, 1);
 }
 
-/* Distribution function of the 2-component Hernquist model */
+/* Distribution function of a Hernquist model */
 double etics::ic::f(double E2) {
     E = E2;
     return qromb(drho2, 0.0, 2.0*sqrt(E))*(sqrt(32.)*(M_PI*M_PI*M_PI));
@@ -221,6 +220,8 @@ void etics::ic::plummer(int N, int Seed, Particle **ParticleList) {
            R, Ve, V;
 
     srand(Seed);
+
+    *ParticleList = new Particle[N];
 
     int i = 0;
     while(i < N) {

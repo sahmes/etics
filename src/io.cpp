@@ -6,8 +6,6 @@
 #include <fstream>
 #include <sstream>
 // #include <sstream>
-#define __host__
-#define __device__
 #include "common.hpp"
 
 #ifndef NOBOOST
