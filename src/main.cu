@@ -207,8 +207,9 @@ int main(int argc, char *argv[]) {
             etics::ic::hernquist(N, Params.Seed, &FullList);
             cout << "Done." << endl;
         } else if (Filename.compare("_plummer_")==0) {
-            cout << "Plummer sphere is not implemented yet." << endl;
-            exit(1); // Plummer sphere not implemented yet
+            cout << "Generating a Plummer sphere..." << endl;
+            etics::ic::plummer(N, Params.Seed, &FullList);
+            cout << "Done." << endl;
         } else if (Filename.compare("_launch_config_")==0) {
             if (NumProcs > 1) {
                 cerr << "Can only optimize launch configuration when a single MPI process is running!" << endl;

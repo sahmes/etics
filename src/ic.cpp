@@ -1,3 +1,16 @@
+/**
+ * @file    ic.cpp
+ * @author  Yohai Meiron <ymeiron@pku.edu.cn>
+ * @brief   Functions to generate initial conditions.
+ *
+ * These are functions to generate a Hernquist or a Plummer sphere. In both
+ * cases the model has a total mass of 1 and the total energy is -0.25 Henon
+ * energy units. The Hernquist model generator was adapted from a program by
+ * John Dubinski (1999, original version) from the NEMO toolbox; the accessory
+ * functions are from Numerical Recipes in C (Press et al. 1992). The Plummer
+ * generator is adapted from the gen-plum program by Peter Berczik.
+ */
+
 #include <iostream>
 #include <cstdlib>
 #include <cstdio>
@@ -15,6 +28,7 @@ namespace etics {
         double trapzd(double (*func)(double), double a, double b, int n);
         double qromb(double (*func)(double), double a, double b);
         double xrandom(double a, double b);
+        double xrandom();
         double f(double E2), drho2(double u);
     }
 }
@@ -107,6 +121,10 @@ double etics::ic::xrandom(double a, double b) {
     return Result;
 }
 
+double etics::ic::xrandom() {
+    return xrandom(0, 1);
+}
+
 /* Distribution function of the 2-component Hernquist model */
 double etics::ic::f(double E2) {
     E = E2;
@@ -195,3 +213,57 @@ void etics::ic::hernquist(int N, int Seed, Particle **ParticleList) {
     }
 #warning you must centralize yourself!!!
 }
+
+#define RMAX 10.0
+void etics::ic::plummer(int N, int Seed, Particle **ParticleList) {
+    double X,  Y,  Z, Vx, Vy, Vz,
+           X1, X2, X3, X4, X5, X6, X7,
+           R, Ve, V;
+
+    srand(Seed);
+
+    int i = 0;
+    while(i < N) {
+        X1 = xrandom(); X2 = xrandom(); X3 = xrandom();
+        R = 1.0/sqrt( (pow(X1,-2.0/3.0) - 1.0) );
+        if (R > RMAX) continue;
+        Z = (1.0 - 2.0*X2)*R;
+        X = sqrt(R*R - Z*Z) * cos(2.0*M_PI*X3);
+        Y = sqrt(R*R - Z*Z) * sin(2.0*M_PI*X3);
+
+        Ve = sqrt(2.0)*pow( (1.0 + R*R), -0.25 );
+
+        X4 = 0.0;
+        X5 = 0.0;
+        while( 0.1*X5 >= X4*X4*pow( (1.0-X4*X4), 3.5) ) {
+            X4 = xrandom();
+            X5 = xrandom();
+        }
+
+        V = Ve*X4;
+
+        X6 = xrandom();
+        X7 = xrandom();
+
+        Vz = (1.0 - 2.0*X6)*V;
+        Vx = sqrt(V*V - Vz*Vz) * cos(2.0*M_PI*X7);
+        Vy = sqrt(V*V - Vz*Vz) * sin(2.0*M_PI*X7);
+
+#define CONV (3.0*M_PI/16.0)
+        X *= CONV; Y *= CONV; Z *= CONV;
+        Vx /= sqrt(CONV); Vy /= sqrt(CONV); Vz /= sqrt(CONV);
+#undef CONV
+
+        Particle p;
+        p.m = 1.0/N;
+        p.pos = vec3(X, Y, Z);
+        p.vel = vec3(Vx, Vy, Vz);
+        p.ID = i;
+        p.Status = 0;
+        p.CalculateR2();
+        (*ParticleList)[i] = p;
+
+        i++;
+    } /* while(i < N) */
+}
+#undef RMAX
