@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) {
         Displacements[0] = 0;
         for (int p = 1; p < NumProcs; p++) Displacements[p] = Displacements[p-1] + BufferSizes[p-1];
     }
-    MPI_Scatterv(FullList, BufferSizes, Displacements, MPI_BYTE, P_h, LocalN*sizeof(Particle), MPI_BYTE, 0, MPI_COMM_WORLD); 
+    MPI_Scatterv(FullList, BufferSizes, Displacements, MPI_BYTE, P_h, LocalN*sizeof(Particle), MPI_BYTE, 0, MPI_COMM_WORLD);
 
     if (MyRank==0) free(FullList);
     N = LocalN;
