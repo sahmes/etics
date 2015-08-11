@@ -4,6 +4,7 @@
 #include "src/scf.hpp"
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
+#include <thrust/inner_product.h>
 
 using namespace std;
 
@@ -274,7 +275,7 @@ int set_launch_config(int *launch_config) {
 //     k3bs = launch_config[1];
 //     k4gs = launch_config[2];
 //     k4bs = launch_config[3];
-    return 0;
+    return -2;
 }
 
 int recommit_particles() {
@@ -373,33 +374,27 @@ struct KineticEnergyFunctor {
 };
 
 int get_kinetic_energy(double *kinetic_energy) {
-//     *kinetic_energy = thrust::transform_reduce(
-//       PPPPP.begin(),
-//       PPPPP.end(),
-//       KineticEnergyFunctor(),
-//       (Real)0, // It must be clear to the function that this zero is a Real.
-//       thrust::plus<Real>()
-//     );
+    *kinetic_energy = thrust::transform_reduce(
+      P.begin(), P.end(),
+      KineticEnergyFunctor(),
+      (Real)0, // It must be clear to the function that this zero is a Real.
+      thrust::plus<Real>()
+    );
     return 0;
 }
 
 struct PotentialEnergyFunctor {
-    template <typename Tuple> __host__ __device__ Real operator()(Tuple t) {
-        Particle p;
-        p = thrust::get<0>(t);
-        Real Potential = thrust::get<1>(t);
-        return p.m*Potential;
-    }
+    __host__ __device__ Real operator() (const Particle &p, const Real &Potential) const {return p.m*Potential;}
 };
 
 int get_potential_energy(double *potential_energy) {
-//     *potential_energy = 0.5*thrust::transform_reduce(
-//       thrust::make_zip_iterator(thrust::make_tuple(PPPPP.begin(), PotPotPot.begin())),
-//       thrust::make_zip_iterator(thrust::make_tuple(PPPPP.end(),   PotPotPot.end()  )),
-//       PotentialEnergyFunctor(),
-//       (Real)0, // It must be clear to the function that this zero is a Real.
-//       thrust::plus<Real>()
-//     );
+    *potential_energy =  0.5*thrust::inner_product(
+      P.begin(), P.end(),
+      Potential.begin(),
+      (Real)0,
+      thrust::plus<Real>(),
+      PotentialEnergyFunctor()
+    );
     return 0;
 }
 
