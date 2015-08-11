@@ -148,7 +148,7 @@ int evolve_model(double t) {
 //     cerr << "CENTER OF MASS after antishift " << CenterMass4.x << endl;
 // 
 //     cerr << "done transform; download to RAM" << endl;
-    PPP = PPPPP;
+    PPP = P;
 //     
 //     cerr << "done download; return" << endl;
     return 0;
