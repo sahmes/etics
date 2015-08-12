@@ -14,6 +14,7 @@ namespace etics {
         int GetN();
         Real KineticEnergy();
         Real PotentialEnergy();
+        void CopyParticlesToHost(Particle *P_h);
         void CopyParticlesToHost(Particle **P_h, int *_N);
       private:
         int N;

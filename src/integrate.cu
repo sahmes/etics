@@ -103,6 +103,10 @@ Real Integrator::PotentialEnergy() {
     );
 }
 
+void Integrator::CopyParticlesToHost(Particle *P_h) {
+    thrust::copy(P.begin(), P.end(), P_h);
+}
+
 void Integrator::CopyParticlesToHost(Particle **P_h, int *_N) {
     Particle *LocalList = new Particle[N];
     thrust::copy(P.begin(), P.end(), LocalList);

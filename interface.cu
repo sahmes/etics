@@ -2,16 +2,20 @@
 
 #include "src/common.hpp"
 #include "src/scf.hpp"
+#include "src/integrate.hpp"
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <thrust/inner_product.h>
 
 using namespace std;
+using namespace etics;
+
+Integrator IntegratorObj;
 
 // GLOBAL VARIABLES
-extern Real ConstantStep;
-extern Real T, Step, dT1, dT2, Tcrit;
-extern int N;
+Real ConstantStep = 0.001953125;
+Real T, Step, dT1, dT2, Tcrit;
+int N;
 extern Real mass;
 extern int k3gs, k3bs, k4gs, k4bs;
 
@@ -26,12 +30,12 @@ thrust::host_vector<Particle> PPP;
 
 
 
-extern Particle *P_h;
-extern thrust::device_vector<Particle> P;
-
-extern thrust::device_vector<vec3>   F0;
-extern thrust::device_vector<Real>   Potential;
-extern thrust::device_vector<vec3>   F1;
+// extern Particle *P_h;
+// extern thrust::device_vector<Particle> P;
+// 
+// extern thrust::device_vector<vec3>   F0;
+// extern thrust::device_vector<Real>   Potential;
+// extern thrust::device_vector<vec3>   F1;
 
 
 void CommitParticles();
@@ -71,10 +75,9 @@ int new_particle(int *id, double mass, double x, double y, double z, double vx, 
 int commit_particles() {
 //     cerr << "calling commit_particles" << endl;
     cerr << "we did commit_particles()" << endl;
-    P = thrust::device_vector<Particle>(PPP);
     etics::scf::Init(N, 180, 64, 2605, 384);
 #warning hardcoded launch configuration
-    InitilizeIntegratorMemory();
+    IntegratorObj = Integrator(&PPP[0], N);
     return 0;
 }
 
@@ -110,26 +113,19 @@ int evolve_model(double t) {
 //     CenterMass2 = CenterMass2 * (1.0/N); //ugly should divide by the total mass
 //     cerr << "CENTER OF MASS after correction " << CenterMass2.x << endl;
 // 
-    if (FirstStep) {
-#warning maybe this should be in commit???
-//         ForceSCF(N, PTR(PotPotPot), PTR(PPPPP), PTR(F0xxxxxx));
-        etics::scf::CalculateGravity(PTR(P), N, PTR(Potential), PTR(F0));
-        CommitForces();
-        FirstStep = false;
-    }
 
     Step = ConstantStep;
     while (T <= t) {
         // Take the drift step.
-        DriftStep();
+        IntegratorObj.DriftStep(Step);
 
         // Calculate the forces in the new positions.
 //         ForceSCF(N, PTR(PotPotPot), PTR(PPPPP), PTR(F1xxxxxx));
-        etics::scf::CalculateGravity(PTR(P), N, PTR(Potential), PTR(F1));
+        IntegratorObj.CalculateGravity();
 
         // Finish by taking the kick step.
         // The kick functor also "commits" the predicted forces into the "acc" member.
-        KickStep();
+        IntegratorObj.KickStep(Step);
 
         // N particles were implicitly propagated in this iteration.
 
@@ -149,7 +145,7 @@ int evolve_model(double t) {
 //     cerr << "CENTER OF MASS after antishift " << CenterMass4.x << endl;
 // 
 //     cerr << "done transform; download to RAM" << endl;
-    PPP = P;
+    IntegratorObj.CopyParticlesToHost(&PPP[0]);
 //     
 //     cerr << "done download; return" << endl;
     return 0;
@@ -315,15 +311,10 @@ int set_radius(int index_of_the_particle, double radius) {
 }
 
 int cleanup_code() {
-    P.clear(); P.shrink_to_fit();
-    PPP.clear(); PPP.shrink_to_fit();
-    F0.clear(); F0.shrink_to_fit();
-    Potential.clear(); Potential.shrink_to_fit();
-    F1.clear(); F1.shrink_to_fit();
+    IntegratorObj.~Integrator();
     cerr << "bye" << endl;
     return 0;
 }
-
 
 int get_gravity_at_point(double soft, double x, double y, double z, double *forcex, double *forcey, double *forcez) {
    return -2;
@@ -369,32 +360,14 @@ int set_velocity(int index_of_the_particle, double vx, double vy, double vz) {
     return 0;
 }
 
-struct KineticEnergyFunctor {
-    __host__ __device__ Real operator() (const Particle &p) const {return 0.5*p.m*p.vel.abs2();}
-};
 
 int get_kinetic_energy(double *kinetic_energy) {
-    *kinetic_energy = thrust::transform_reduce(
-      P.begin(), P.end(),
-      KineticEnergyFunctor(),
-      (Real)0, // It must be clear to the function that this zero is a Real.
-      thrust::plus<Real>()
-    );
+    *kinetic_energy = IntegratorObj.KineticEnergy();
     return 0;
 }
 
-struct PotentialEnergyFunctor {
-    __host__ __device__ Real operator() (const Particle &p, const Real &Potential) const {return p.m*Potential;}
-};
-
 int get_potential_energy(double *potential_energy) {
-    *potential_energy =  0.5*thrust::inner_product(
-      P.begin(), P.end(),
-      Potential.begin(),
-      (Real)0,
-      thrust::plus<Real>(),
-      PotentialEnergyFunctor()
-    );
+    *potential_energy = IntegratorObj.PotentialEnergy();
     return 0;
 }
 
