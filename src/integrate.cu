@@ -1,54 +1,10 @@
-// this was a dumb idea, move everything back to main, and include main.hpp or something in the amuse interface
-
-// only global variables, functions and structures related to the leapfrog integration; the force calculation routines are in mex.cu and scf.cu
-// this is basically auxiliary to main.cu
-
-// new idea: this should be a class, then you create one instance in main.cu and don't have these nasty globals!!
-
 #include <thrust/device_vector.h>
+#include <thrust/inner_product.h>
 #include "common.hpp"
-#include <iostream>
-using std::cout;
-using std::cerr;
-using std::endl;
+#include "scf.hpp"
+#include "integrate.hpp"
 
-#warning Those variables should actually be in main.cu, not here
-Particle *P_h;
-thrust::device_vector<Particle> P;
-
-thrust::device_vector<Real> Potential;
-thrust::device_vector<vec3> F0;
-thrust::device_vector<vec3> F1;
-
-Real ConstantStep = 0.001953125;
-Real T, Step, eta, dT1, dT2, Tcrit;
-int N;
-
-
-int CommitParticles() {
-    P = thrust::device_vector<Particle>(P_h, P_h+N);
-    return 0;
-}
-
-int InitilizeIntegratorMemory() {
-    Potential = thrust::device_vector<Real>(N);
-    F0 = thrust::device_vector<vec3>(N);
-    F1 = thrust::device_vector<vec3>(N);
-    return 0;
-}
-
-struct CommitForcesFunctor {
-    Real Step;
-    __host__ __device__ CommitForcesFunctor(Real _Step) : Step(_Step) {}
-    __host__ __device__ Particle operator() (Particle& p, const vec3& F) const {
-        p.acc = F;
-        return p;
-    }
-};
-
-void CommitForces() {
-    thrust::transform(P.begin(), P.end(), F0.begin(), P.begin(), CommitForcesFunctor(Step));
-}
+#define PTR(x) (thrust::raw_pointer_cast((x).data()))
 
 // The 'drift' step is performed using the 'acc' member.
 struct DriftFunctor {
@@ -60,10 +16,6 @@ struct DriftFunctor {
         return p;
     }
 };
-
-void DriftStep() {
-    thrust::transform(P.begin(), P.end(), P.begin(), DriftFunctor(Step));
-}
 
 // The 'kick' step is performed using the 'acc' member and also the force F,
 // calculated at the new (predicted) position.
@@ -77,6 +29,80 @@ struct KickFunctor {
     }
 };
 
-void KickStep() {
-    thrust::transform(P.begin(), P.end(), F1.begin(), P.begin(), KickFunctor(Step));
+struct KineticEnergyFunctor {
+    __host__ __device__ Real operator() (const Particle &p) const {return 0.5*p.m*p.vel.abs2();}
+};
+
+struct PotentialEnergyFunctor {
+    __host__ __device__ Real operator() (const Particle &p, const Real &Potential) const {return p.m*Potential;}
+};
+
+Integrator::Integrator() {
+    N = 0;
+    Time = 0;
+}
+
+Integrator::Integrator(Particle *P_h, int _N) {
+    N = _N;
+    Time = 0;
+    P = thrust::device_vector<Particle>(P_h, P_h+N);
+    Potential = thrust::device_vector<Real>(N);
+    Force = thrust::device_vector<vec3>(N);
+    Method = &etics::scf::CalculateGravity;
+    CalculateGravity();
+    KickStep(0); // Just to "commit" the forces to the particle list.
+}
+
+Integrator::~Integrator() {
+    N = 0;
+    // Weird way to free Thrust memory.
+    P.clear();           P.shrink_to_fit();
+    Potential.clear();   Potential.shrink_to_fit();
+    Force.clear();       Force.shrink_to_fit();
+}
+
+void Integrator::CalculateGravity() {
+    (*Method)(PTR(P), N, PTR(Potential), PTR(Force));
+}
+
+void Integrator::DriftStep(Real Step) {
+    thrust::transform(P.begin(), P.end(), P.begin(), DriftFunctor(Step));
+}
+
+void Integrator::KickStep(Real Step) {
+    thrust::transform(P.begin(), P.end(), Force.begin(), P.begin(), KickFunctor(Step));
+}
+
+Real Integrator::GetTime() {
+    return Time;
+}
+
+int Integrator::GetN() {
+    return N;
+}
+
+Real Integrator::KineticEnergy() {
+    return thrust::transform_reduce(
+      P.begin(), P.end(),
+      KineticEnergyFunctor(),
+      (Real)0, // It must be clear to the function that this zero is a Real.
+      thrust::plus<Real>()
+    );
+}
+
+Real Integrator::PotentialEnergy() {
+    return 0.5*thrust::inner_product(
+      P.begin(), P.end(),
+      Potential.begin(),
+      (Real)0,
+      thrust::plus<Real>(),
+      PotentialEnergyFunctor()
+    );
+}
+
+void Integrator::CopyParticlesToHost(Particle **P_h, int *_N) {
+    Particle *LocalList = new Particle[N];
+    thrust::copy(P.begin(), P.end(), LocalList);
+    *P_h = LocalList;
+    *_N = N;
 }
