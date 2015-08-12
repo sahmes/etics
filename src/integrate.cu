@@ -6,6 +6,9 @@
 
 #define PTR(x) (thrust::raw_pointer_cast((x).data()))
 
+namespace etics
+{
+
 // The 'drift' step is performed using the 'acc' member.
 struct DriftFunctor {
     Real Step, Step2;
@@ -106,3 +109,5 @@ void Integrator::CopyParticlesToHost(Particle **P_h, int *_N) {
     *P_h = LocalList;
     *_N = N;
 }
+
+} // namespace etics
