@@ -70,7 +70,10 @@ void ReadICs(string Filename, int N, int Skip, Particle **P_h) {
 //     CmCorrection(&P_h[0]);
 }
 
+void Dooooo(string Prefix, int SnapNumber, Particle *P_h, int N, Real T);
 void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
+    Dooooo(Prefix, SnapNumber, P_h, N, T);
+    return;
     char S[512];
     sprintf(S, "%s%04d", Prefix.c_str(), SnapNumber);
     ofstream SnapshotFile;
@@ -158,103 +161,99 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
 }
 
 #define ETICS_HDF5
+// make safety: if single precision, fail to compile
 #ifdef ETICS_HDF5
 #include "H5Cpp.h"
-const H5std_string  FILE_NAME("h5tutr_cmprss.h5");
-const H5std_string  DATASET_NAME("Compressed_Data");
-const int   DIM0 = 100;
-const int   DIM1 = 20;
-int Dooooo() {
-    hsize_t dims[2] = { DIM0, DIM1 };   // dataset dimensions
-    hsize_t chunk_dims[2] = { 20, 20 }; // chunk dimensions
-    int     i,j, buf[DIM0][DIM1];
-
-
-
-    // Create a new file using the default property lists. 
-    H5::H5File file(FILE_NAME, H5F_ACC_TRUNC);
-
-    // Create the data space for the dataset.
-    H5::DataSpace *dataspace = new H5::DataSpace(2, dims);
-
-    // Modify dataset creation property to enable chunking
-    H5::DSetCreatPropList  *plist = new H5::DSetCreatPropList;
-    plist->setChunk(2, chunk_dims);
-
-    // Set ZLIB (DEFLATE) Compression using level 6.
-    // To use SZIP compression comment out this line.
-    plist->setDeflate(6);
-
-    // Uncomment these lines to set SZIP Compression
-    // unsigned szip_options_mask = H5_SZIP_NN_OPTION_MASK;
-    // unsigned szip_pixels_per_block = 16;
-    // plist->setSzip(szip_options_mask, szip_pixels_per_block);
-     
-    // Create the dataset.      
-    H5::DataSet *dataset = new H5::DataSet(file.createDataSet( DATASET_NAME, 
-                            H5::PredType::STD_I32BE, *dataspace, *plist) );
-
-    for (i = 0; i< DIM0; i++)
-      for (j=0; j<DIM1; j++)
-          buf[i][j] = i+j;
-
-    // Write data to dataset.
-    dataset->write(buf, H5::PredType::NATIVE_INT);
-
-    // Close objects and file.  Either approach will close the HDF5 item.
-    delete dataspace;
-    delete dataset;
-    delete plist;
-    file.close();
-
-    // -----------------------------------------------
-    // Re-open the file and dataset, retrieve filter 
-    // information for dataset and read the data back.
-    // -----------------------------------------------
+void Dooooo(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
     
-    int        rbuf[DIM0][DIM1];
-    int        numfilt;
-    size_t     nelmts={1}, namelen={1};
-    unsigned  flags, filter_info, cd_values[1], idx;
-    char       name[1];
-    H5Z_filter_t filter_type;
+    char Filename[512];
+    sprintf(Filename, "%s.h5part", Prefix.c_str());
 
-    // Open the file and the dataset in the file.
-    file.openFile(FILE_NAME, H5F_ACC_RDONLY);
-    dataset = new H5::DataSet(file.openDataSet( DATASET_NAME));
+    
+//     WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T)
+    double *X, *Y, *Z, *VX, *VY, *VZ, *AX, *AY, *AZ;
+    X  = new double[N];
+    Y  = new double[N];
+    Z  = new double[N];
+    VX = new double[N];
+    VY = new double[N];
+    VZ = new double[N];
+    AX = new double[N];
+    AY = new double[N];
+    AZ = new double[N];
+    int *ID;
+    ID = new int[N];
 
-    // Get the create property list of the dataset.
-    plist = new H5::DSetCreatPropList(dataset->getCreatePlist ());
-
-    // Get the number of filters associated with the dataset.
-    numfilt = plist->getNfilters();
-    cout << "Number of filters associated with dataset: " << numfilt << endl;
-
-    for (idx=0; idx < numfilt; idx++) {
-        nelmts = 0;
-
-        filter_type = plist->getFilter(idx, flags, nelmts, cd_values, namelen, name , filter_info);
-
-        cout << "Filter Type: ";
-
-        switch (filter_type) {
-          case H5Z_FILTER_DEFLATE:
-               cout << "H5Z_FILTER_DEFLATE" << endl;
-               break;
-          case H5Z_FILTER_SZIP:
-               cout << "H5Z_FILTER_SZIP" << endl; 
-               break;
-          default:
-               cout << "Other filter type included." << endl;
-          }
+    for (int i = 0; i < N; i++) {
+        Particle p = P_h[i];
+        ID[i] = p.ID;
+        X[i]  = p.pos.x;
+        Y[i]  = p.pos.y;
+        Z[i]  = p.pos.z;
+        VX[i] = p.vel.x;
+        VY[i] = p.vel.y;
+        VZ[i] = p.vel.z;
+        AX[i] = p.acc.x;
+        AY[i] = p.acc.y;
+        AZ[i] = p.acc.z;
     }
 
-    // Read data.
-    dataset->read(rbuf, H5::PredType::NATIVE_INT);
+    H5::H5File file;
+    std::ifstream infile(Filename);
+    if (!infile.good()) file = H5::H5File(Filename, H5F_ACC_TRUNC);
+    else file = H5::H5File(Filename, H5F_ACC_RDWR);
+#warning be more sophosticated when checking if file exists. Open it and if the snapshot we are trying to write already exist, then fail.
+    
+#warning also make it so when we read the ini file, if the ic file ends with .h5part, then we treat it as continue.
+    
+#warning you forgot to include the mass in the parameters
 
-    delete plist; 
-    delete dataset;
-    file.close();   // can be skipped
+    char GroupName[64];
+    sprintf(GroupName, "/Step#%d", SnapNumber);
+
+    H5::Group group(file.createGroup(GroupName));
+
+    H5::DataSpace attr_dataspace = H5::DataSpace(H5S_SCALAR);
+
+    H5::Attribute attribute = group.createAttribute("Time", H5::PredType::NATIVE_DOUBLE, attr_dataspace);
+    attribute.write( H5::PredType::NATIVE_DOUBLE, &T);
+
+    attribute = group.createAttribute("TotalN", H5::PredType::NATIVE_UINT32, attr_dataspace);
+    attribute.write( H5::PredType::NATIVE_UINT32, &N);
+
+    hsize_t dimsxxx = N;
+    H5::DataSpace dataspacexxx(1, &dimsxxx);
+    H5::DataSet dataset3;
+    dataset3 = H5::DataSet(group.createDataSet("ID", H5::PredType::NATIVE_UINT32, dataspacexxx));
+    dataset3.write(ID, H5::PredType::NATIVE_UINT32);
+    dataset3 = H5::DataSet(group.createDataSet("X",  H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(X, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("Y",  H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(Y, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("Z",  H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(Z, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("VX", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(VX, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("VY", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(VY, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("VZ", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(VZ, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("AX", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(AX, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("AY", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(AY, H5::PredType::NATIVE_DOUBLE);
+    dataset3 = H5::DataSet(group.createDataSet("AZ", H5::PredType::NATIVE_DOUBLE, dataspacexxx));
+    dataset3.write(AZ, H5::PredType::NATIVE_DOUBLE);
+
+    
+    dataset3.close();
+    dataspacexxx.close();
+
+    attr_dataspace.close();
+    attribute.close();
+    group.close();
+    file.close();
+
 }
 
 #endif

@@ -5,7 +5,6 @@ NMAX ?= 10
 GPUARCH ?= 35
 NVCC ?= nvcc
 
-
 CUDALIB  ?= /usr/local/cuda-6.5/lib64
 MPILIB   ?= /usr/local
 H5LIB    ?= /usr/lib/x86_64-linux-gnu
@@ -59,7 +58,7 @@ standalone: $(CODEOBJS1) $(CODEOBJS2)
 .SUFFIXES: .cu .cpp .o
 
 # only io.cpp should be compiled with all the weird HDF5 flags
-io.o:
+io.o: io.cpp
 	$(CXX) $(CXXFLAGS) $(H5_CXX_OPTS) -c -o io.o io.cpp
 
 .cu.o: $<
