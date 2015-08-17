@@ -156,3 +156,105 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     if (P.Seed == INT_MIN) P.Seed = (int)time(NULL);
     *Params = P;
 }
+
+#define ETICS_HDF5
+#ifdef ETICS_HDF5
+#include "H5Cpp.h"
+const H5std_string  FILE_NAME("h5tutr_cmprss.h5");
+const H5std_string  DATASET_NAME("Compressed_Data");
+const int   DIM0 = 100;
+const int   DIM1 = 20;
+int Dooooo() {
+    hsize_t dims[2] = { DIM0, DIM1 };   // dataset dimensions
+    hsize_t chunk_dims[2] = { 20, 20 }; // chunk dimensions
+    int     i,j, buf[DIM0][DIM1];
+
+
+
+    // Create a new file using the default property lists. 
+    H5::H5File file(FILE_NAME, H5F_ACC_TRUNC);
+
+    // Create the data space for the dataset.
+    H5::DataSpace *dataspace = new H5::DataSpace(2, dims);
+
+    // Modify dataset creation property to enable chunking
+    H5::DSetCreatPropList  *plist = new H5::DSetCreatPropList;
+    plist->setChunk(2, chunk_dims);
+
+    // Set ZLIB (DEFLATE) Compression using level 6.
+    // To use SZIP compression comment out this line.
+    plist->setDeflate(6);
+
+    // Uncomment these lines to set SZIP Compression
+    // unsigned szip_options_mask = H5_SZIP_NN_OPTION_MASK;
+    // unsigned szip_pixels_per_block = 16;
+    // plist->setSzip(szip_options_mask, szip_pixels_per_block);
+     
+    // Create the dataset.      
+    H5::DataSet *dataset = new H5::DataSet(file.createDataSet( DATASET_NAME, 
+                            H5::PredType::STD_I32BE, *dataspace, *plist) );
+
+    for (i = 0; i< DIM0; i++)
+      for (j=0; j<DIM1; j++)
+          buf[i][j] = i+j;
+
+    // Write data to dataset.
+    dataset->write(buf, H5::PredType::NATIVE_INT);
+
+    // Close objects and file.  Either approach will close the HDF5 item.
+    delete dataspace;
+    delete dataset;
+    delete plist;
+    file.close();
+
+    // -----------------------------------------------
+    // Re-open the file and dataset, retrieve filter 
+    // information for dataset and read the data back.
+    // -----------------------------------------------
+    
+    int        rbuf[DIM0][DIM1];
+    int        numfilt;
+    size_t     nelmts={1}, namelen={1};
+    unsigned  flags, filter_info, cd_values[1], idx;
+    char       name[1];
+    H5Z_filter_t filter_type;
+
+    // Open the file and the dataset in the file.
+    file.openFile(FILE_NAME, H5F_ACC_RDONLY);
+    dataset = new H5::DataSet(file.openDataSet( DATASET_NAME));
+
+    // Get the create property list of the dataset.
+    plist = new H5::DSetCreatPropList(dataset->getCreatePlist ());
+
+    // Get the number of filters associated with the dataset.
+    numfilt = plist->getNfilters();
+    cout << "Number of filters associated with dataset: " << numfilt << endl;
+
+    for (idx=0; idx < numfilt; idx++) {
+        nelmts = 0;
+
+        filter_type = plist->getFilter(idx, flags, nelmts, cd_values, namelen, name , filter_info);
+
+        cout << "Filter Type: ";
+
+        switch (filter_type) {
+          case H5Z_FILTER_DEFLATE:
+               cout << "H5Z_FILTER_DEFLATE" << endl;
+               break;
+          case H5Z_FILTER_SZIP:
+               cout << "H5Z_FILTER_SZIP" << endl; 
+               break;
+          default:
+               cout << "Other filter type included." << endl;
+          }
+    }
+
+    // Read data.
+    dataset->read(rbuf, H5::PredType::NATIVE_INT);
+
+    delete plist; 
+    delete dataset;
+    file.close();   // can be skipped
+}
+
+#endif
