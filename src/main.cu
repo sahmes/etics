@@ -60,9 +60,8 @@ using namespace etics;
 // GLOBAL VARIABLES
 int MyRank, NumProcs;
 Real ConstantStep = 0.001953125;
-Real T, Step, dT1, dT2, Tcrit;
-
-int NSteps = 0;
+Real T, Step, dT1, dT2, Tcrit, FileTime;
+int NSteps = 0, FileSnapshotNum;
 
 struct ReorderingFunctor {
     __host__ __device__ bool operator() (const Particle &lhs, const Particle &rhs) {
@@ -115,8 +114,6 @@ void PrepareSnapshot(Integrator IntegratorObj, Particle **ParticleList, int *Cur
 }
 
 int main(int argc, char *argv[]) {
-    int SnapNumber;
-
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &MyRank);
     MPI_Comm_size(MPI_COMM_WORLD, &NumProcs);
@@ -162,10 +159,14 @@ int main(int argc, char *argv[]) {
         if ((Filename.compare("_nofile_")==0) || (Filename.compare("_hernquist_")==0)) {
             cout << "Generating a Hernquist sphere..." << endl;
             etics::ic::hernquist(N, Params.Seed, &FullList);
+            FileSnapshotNum = 0;
+            FileTime = 0;
             cout << "Done." << endl;
         } else if (Filename.compare("_plummer_")==0) {
             cout << "Generating a Plummer sphere..." << endl;
             etics::ic::plummer(N, Params.Seed, &FullList);
+            FileSnapshotNum = 0;
+            FileTime = 0;
             cout << "Done." << endl;
         } else if (Filename.compare("_launch_config_")==0) {
             if (NumProcs > 1) {
@@ -176,7 +177,7 @@ int main(int argc, char *argv[]) {
             scf::OptimizeLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
             return 0;
         }
-        else ReadICs(Filename, N, Params.Skip, &FullList);
+        else ReadICs(Filename, N, &FullList, &FileSnapshotNum, &FileTime);
     }
 
     int LocalN = N / NumProcs;
@@ -202,7 +203,8 @@ int main(int argc, char *argv[]) {
 
     // More initializations.
     Real NextOutput = 0, NextSnapshot = 0;
-    T  = 0;
+    T = FileTime;
+    int SnapNumber = FileSnapshotNum;
     Step = CalculateStepSize();
 
     while (T <= Tcrit) {

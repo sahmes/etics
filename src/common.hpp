@@ -71,7 +71,6 @@ struct ParametersStruct {
     int N;
     std::string Filename;
     int Seed;
-    int Skip;
     Real dT1, dT2, Tcrit, ConstantStep;
     std::string Prefix;
     int DeviceID;

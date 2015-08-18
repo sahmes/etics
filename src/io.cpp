@@ -15,40 +15,50 @@
 
 using namespace std;
 
-void ReadICs(string Filename, int N, int Skip, Particle **P_h) {
-
+void ReadICs(string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime) {
     *P_h = new Particle[N];
-
     string Line;
     ifstream InputFile(Filename.c_str());
     int LineNum;
-    for (LineNum = 0; LineNum < Skip; LineNum++) getline(InputFile, Line);
+
     int i = 0;
     if (InputFile.is_open()) {
+        getline(InputFile, Line); // First line is the snapshot number.
+        int Count = sscanf(Line.c_str(), "%d", FileSnapshotNum);
+        if (Count != 1) {
+            cerr << "Problem in input file, line 1." << endl;
+            exit(1);
+        }
+        getline(InputFile, Line); // Second line is the expected number of particles.
+        int ExpectedN;
+        Count = sscanf(Line.c_str(), "%d", &ExpectedN); // We ignore it actually.
+        if (Count != 1) {
+            cerr << "Problem in input file, line 2." << endl;
+            exit(1);
+        }
+        getline(InputFile, Line);
+        double T0;
+        Count = sscanf(Line.c_str(), "%lf", &T0);
+        if (Count != 1) {
+            cerr << "Problem in input file, line 3." << endl;
+            exit(1);
+        }
+        *FileTime = (Real)T0;
+        LineNum = 3;
         while (getline(InputFile, Line))
         {
-            Real m, x, y, z, vx, vy, vz;
+            double m, x, y, z, vx, vy, vz;
+            int id;
             Particle p;
-// #ifdef ETICS_DOUBLE_PRECISION
-//             int Count = sscanf(Line.c_str(), "%*d %*f %lf %lf %lf %lf %lf %lf", &x, &y, &z, &vx, &vy, &vz);
-// #else
-//             int Count = sscanf(Line.c_str(), "%*d %*f %f %f %f %f %f %f", &x, &y, &z, &vx, &vy, &vz);
-// #endif
-//             if (Count != 6) {
-#ifdef ETICS_DOUBLE_PRECISION
-            int Count = sscanf(Line.c_str(), "%*d %lf %lf %lf", &x, &y, &z);
-#else
-            int Count = sscanf(Line.c_str(), "%*d %f %f %f", &x, &y, &z);
-#endif
-            if (Count != 3) {
+            Count = sscanf(Line.c_str(), "%d %lf %lf %lf %lf %lf %lf %lf", &id, &m, &x, &y, &z, &vx, &vy, &vz);
+            if (Count != 8) {
                 cerr << "Problem in input file, line " << LineNum + 1 << "." << endl;
                 exit(1);
             }
-//             p.m = m;
-            p.m = 1.0/N;
-            p.pos = vec3(x, y, z);
-            p.vel = vec3(vx, vy, vz);
-            p.ID = i;
+            p.ID = id;
+            p.m = (Real)m;
+            p.pos = vec3((Real)x, (Real)y, (Real)z);    // This is to ensure proper casting in the case of single prec.
+            p.vel = vec3((Real)vx, (Real)vy, (Real)vz);
             p.Status = 0;
             p.CalculateR2();
             (*P_h)[i] = p;
@@ -65,15 +75,12 @@ void ReadICs(string Filename, int N, int Skip, Particle **P_h) {
         cerr << "Was only able to read " << i << " particles while " << N << " were requested." << endl;
         exit(1);
     }
-    // Transfer everything to the device; the host memory is implicitly freed
-    // when we leave the current scope (probably).
-//     CmCorrection(&P_h[0]);
 }
 
 void Dooooo(string Prefix, int SnapNumber, Particle *P_h, int N, Real T);
 void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
-    Dooooo(Prefix, SnapNumber, P_h, N, T);
-    return;
+//     Dooooo(Prefix, SnapNumber, P_h, N, T);
+//     return;
     char S[512];
     sprintf(S, "%s%04d", Prefix.c_str(), SnapNumber);
     ofstream SnapshotFile;
@@ -115,7 +122,6 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     P.Filename = pt.get<string>("Filename", "\n");
     if (P.Filename == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
 
-    P.Skip = pt.get<int>("Skip", 0);
     P.Prefix = pt.get<string>("Prefix", "");
     P.DeviceID = pt.get<int>("device", -1);
     if (argc >= 3) { // If there is a argument after the file, it must be either --device or -d
@@ -133,13 +139,12 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     }
 #else
     // If no BOOST, we include a file with the parameters and compile it.
-    int N, Skip = 0, DeviceID = -1;
+    int N, DeviceID = -1;
     Real dT1, dT2, Tcrit, StepSize;
     std::string Filename, Prefix = "";
     #include "noboost.inc"
     P.N = N;
     P.Filename = Filename;
-    P.Skip = Skip;
     P.dT1 = dT1;
     P.dT2 = dT2;
     P.Tcrit = Tcrit;
