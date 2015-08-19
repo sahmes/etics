@@ -5,8 +5,8 @@
 #include <climits>
 #include <fstream>
 #include <sstream>
-// #include <sstream>
 #include "common.hpp"
+#include "io.hpp"
 
 #ifndef NOBOOST
     #include <boost/property_tree/ptree.hpp>
@@ -15,11 +15,7 @@
 
 using namespace std;
 
-void ReadICsHDF5(string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime);
-
-void ReadICs(string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime) {
-    ReadICsHDF5("IC.h5part", N, P_h, FileSnapshotNum, FileTime);
-    return;
+void ReadICsASCII(string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime) {
     *P_h = new Particle[N];
     string Line;
     ifstream InputFile(Filename.c_str());
@@ -81,12 +77,9 @@ void ReadICs(string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real 
     }
 }
 
-void WriteSnapshotHDF5(string Prefix, int SnapNumber, Particle *P_h, int N, Real T);
-void WriteSnapshot(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
-    WriteSnapshotHDF5(Prefix, SnapNumber, P_h, N, T);
-    return;
+void WriteSnapshotASCII(string Prefix, int SnapNumber, Particle *P_h, int N, Real T) {
     char S[512];
-    sprintf(S, "%s%04d", Prefix.c_str(), SnapNumber);
+    sprintf(S, "%s%04d.dat", Prefix.c_str(), SnapNumber);
     ofstream SnapshotFile;
     SnapshotFile.open(S);
     sprintf(S, "%06d\n", SnapNumber); SnapshotFile << S;
@@ -127,6 +120,7 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     if (P.Filename == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
 
     P.Prefix = pt.get<string>("Prefix", "");
+    P.Format = pt.get<string>("Format", "ascii");
     P.DeviceID = pt.get<int>("device", -1);
     if (argc >= 3) { // If there is a argument after the file, it must be either --device or -d
         int Version1 = strncmp(argv[2], "--device", 8);
@@ -169,7 +163,7 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     *Params = P;
 }
 
-#define ETICS_HDF5
+
 // make safety: if single precision, fail to compile
 #ifdef ETICS_HDF5
 #include "H5Cpp.h"

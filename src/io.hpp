@@ -1,5 +1,19 @@
 #pragma once
-void ReadICs(std::string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime);
-void WriteSnapshot(std::string Prefix, int SnapNumber, Particle *hostP, int N, Real T);
+
+struct ParametersStruct {
+    int N;
+    std::string Filename;
+    int Seed;
+    Real dT1, dT2, Tcrit, ConstantStep;
+    std::string Prefix;
+    std::string Format;
+    int DeviceID;
+};
+
+void ReadICsASCII(std::string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime);
+void WriteSnapshotASCII(std::string Prefix, int SnapNumber, Particle *hostP, int N, Real T);
 void ParseInput(int argc, char *argv[], ParametersStruct *Params);
-void GenerateRandomData(int N, Particle *hostP);
+#ifdef ETICS_HDF5
+void ReadICsHDF5(std::string Filename, int N, Particle **P_h, int *FileSnapshotNum, Real *FileTime);
+void WriteSnapshotHDF5(std::string Prefix, int SnapNumber, Particle *hostP, int N, Real T);
+#endif

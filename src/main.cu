@@ -156,19 +156,19 @@ int main(int argc, char *argv[]) {
     // Read an input file and initialize the global particle structure.
     Particle *FullList;
     if (MyRank==0) {
-        if ((Filename.compare("_nofile_")==0) || (Filename.compare("_hernquist_")==0)) {
+        if ((Filename == "_nofile_") || (Filename == "_hernquist_")) {
             cout << "Generating a Hernquist sphere..." << endl;
             etics::ic::hernquist(N, Params.Seed, &FullList);
             FileSnapshotNum = 0;
             FileTime = 0;
             cout << "Done." << endl;
-        } else if (Filename.compare("_plummer_")==0) {
+        } else if (Filename == "_plummer_") {
             cout << "Generating a Plummer sphere..." << endl;
             etics::ic::plummer(N, Params.Seed, &FullList);
             FileSnapshotNum = 0;
             FileTime = 0;
             cout << "Done." << endl;
-        } else if (Filename.compare("_launch_config_")==0) {
+        } else if (Filename == "_launch_config_") {
             if (NumProcs > 1) {
                 cerr << "Can only optimize launch configuration when a single MPI process is running!" << endl;
                 exit(1);
@@ -177,7 +177,29 @@ int main(int argc, char *argv[]) {
             scf::OptimizeLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
             return 0;
         }
-        else ReadICs(Filename, N, &FullList, &FileSnapshotNum, &FileTime);
+        else {
+            string InputFileSuffix = Filename.substr(Filename.find_last_of("."), Filename.length()-Filename.find_last_of("."));
+
+            if ((InputFileSuffix==".h5part") || (InputFileSuffix==".hdf5") || (InputFileSuffix==".h5")) {
+#ifndef ETICS_HDF5
+                cerr << "Compiled without the \"ETICS_HDF5\" flag; cannot read input in this format." << endl;
+                exit(1);
+#else
+                ReadICsHDF5(Filename, N, &FullList, &FileSnapshotNum, &FileTime);
+#endif
+            } else ReadICsASCII(Filename, N, &FullList, &FileSnapshotNum, &FileTime);
+        }
+    }
+    
+#ifndef ETICS_HDF5
+    if (Params.Format == "hdf5") {
+        cerr << "Compiled without the \"ETICS_HDF5\" flag; cannot output in requested format." << endl;
+        exit(1);
+    }
+#endif
+    if (!(Params.Format == "hdf5") && !(Params.Format == "ascii")) {
+        cerr << "Requested output format unrecognized." << endl;
+        exit(1);
     }
 
     int LocalN = N / NumProcs;
@@ -216,7 +238,7 @@ int main(int argc, char *argv[]) {
             int CurrentTotalN;
             PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
             if (MyRank==0) {
-                WriteSnapshot(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+                WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
                 free(FullList);
             }
             SnapNumber++;

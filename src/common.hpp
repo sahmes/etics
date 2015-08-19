@@ -3,6 +3,7 @@
 #include <time.h>
 // A_ON_SHARED_MEMORY moves the A structure (after it has been calculated) from constant to shared memory. This might be faster, or not.
 // #define A_ON_SHARED_MEMORY
+#define ETICS_HDF5
 
 #ifndef __CUDACC__
     #define __host__
@@ -65,15 +66,6 @@ class Particle {
         __host__ __device__ Particle() {}
         __host__ __device__ void CalculateR2() {R2 = pos.abs2();}
         __host__ __device__ bool operator< (const Particle& p) const {return (this->R2 < p.R2);}
-};
-
-struct ParametersStruct {
-    int N;
-    std::string Filename;
-    int Seed;
-    Real dT1, dT2, Tcrit, ConstantStep;
-    std::string Prefix;
-    int DeviceID;
 };
 
 #define ETICS_MY_CLOCK CLOCK_MONOTONIC
