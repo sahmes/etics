@@ -192,12 +192,12 @@ int main(int argc, char *argv[]) {
     }
     
 #ifndef ETICS_HDF5
-    if (Params.Format == "hdf5") {
+    if (Params.OutputFormat == "hdf5") {
         cerr << "Compiled without the \"ETICS_HDF5\" flag; cannot output in requested format." << endl;
         exit(1);
     }
 #endif
-    if (!(Params.Format == "hdf5") && !(Params.Format == "ascii")) {
+    if (!(Params.OutputFormat == "hdf5") && !(Params.OutputFormat == "ascii")) {
         cerr << "Requested output format unrecognized." << endl;
         exit(1);
     }
@@ -238,7 +238,11 @@ int main(int argc, char *argv[]) {
             int CurrentTotalN;
             PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
             if (MyRank==0) {
-                WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+                if (Params.OutputFormat == "ascii") WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+#ifdef ETICS_HDF5
+                else if (Params.OutputFormat == "hdf5") WriteSnapshotHDF5(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+#endif
+                else {cerr << "Error" << endl; exit(1);}
                 free(FullList);
             }
             SnapNumber++;

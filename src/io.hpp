@@ -6,7 +6,7 @@ struct ParametersStruct {
     int Seed;
     Real dT1, dT2, Tcrit, ConstantStep;
     std::string Prefix;
-    std::string Format;
+    std::string OutputFormat;
     int DeviceID;
 };
 

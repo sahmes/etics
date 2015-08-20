@@ -120,7 +120,7 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     if (P.Filename == "\n") THROW_EXCEPTION("Could not read initial condition file name (Filename) from ini file.", 1)
 
     P.Prefix = pt.get<string>("Prefix", "");
-    P.Format = pt.get<string>("Format", "ascii");
+    P.OutputFormat = pt.get<string>("OutputFormat", "ascii");
     P.DeviceID = pt.get<int>("device", -1);
     if (argc >= 3) { // If there is a argument after the file, it must be either --device or -d
         int Version1 = strncmp(argv[2], "--device", 8);
