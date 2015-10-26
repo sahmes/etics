@@ -350,6 +350,17 @@ void WriteSnapshotHDF5(string Prefix, int SnapNumber, Particle *P_h, int N, Real
     group.close();
     file.close();
 
+    delete [] Mass;
+    delete [] X;
+    delete [] Y;
+    delete [] Z;
+    delete [] VX;
+    delete [] VY;
+    delete [] VZ;
+    delete [] AX;
+    delete [] AY;
+    delete [] AZ;
+    delete [] ID;
 }
 
 #endif
