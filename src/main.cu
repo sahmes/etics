@@ -105,8 +105,7 @@ void PrepareSnapshot(Integrator IntegratorObj, Particle **ParticleList, int *Cur
         for (int p = 1; p < NumProcs; p++) Displacements[p] = Displacements[p-1] + BufferSizes[p-1];
         *ParticleList = new Particle[TotalN];
     }
-    MPI_Gatherv(LocalList, LocalBufferSize, MPI_BYTE, *ParticleList, BufferSizes,
- Displacements, MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(LocalList, LocalBufferSize, MPI_BYTE, *ParticleList, BufferSizes, Displacements, MPI_BYTE, 0, MPI_COMM_WORLD);
 #ifdef MEX
     thrust::sort(*ParticleList, (*ParticleList)+TotalN, ReorderingFunctor());
 #endif
@@ -203,6 +202,7 @@ int main(int argc, char *argv[]) {
     }
 
     int LocalN = N / NumProcs;
+
     int Remainder = N - LocalN*NumProcs;
     if (MyRank==NumProcs-1) LocalN += Remainder;
     Particle *LocalList = new Particle[LocalN];
@@ -219,8 +219,54 @@ int main(int argc, char *argv[]) {
     if (MyRank==0) free(FullList);
     N = LocalN;
 
-    method::Init(N, 180, 64, 2605, 384);
-#warning hardcoded launch configuration
+    // Here we ask each MPI process to report
+    cudaDeviceProp DeviceProperties;
+    const int etics_str_len = 256;
+    cudaGetDeviceProperties(&DeviceProperties, 0);
+    char ProcessorName[etics_str_len];
+    int tmp;
+    MPI_Get_processor_name(ProcessorName, &tmp);
+    char UniqueDeviceID[etics_str_len];
+    sprintf(UniqueDeviceID, "%d$$$%s", DeviceProperties.pciBusID, ProcessorName);
+    char Message[etics_str_len];
+    sprintf(Message, "Hello from rank %d (of %d) on %s, using \"%s\" with PCI bus ID %d; this rank has %d particles.\n", MyRank, NumProcs, ProcessorName, DeviceProperties.name, DeviceProperties.pciBusID, LocalN);
+    if (MyRank == 0) {
+        printf(Message);
+        fflush(stdout);
+        for (int Rank = 1; Rank < NumProcs; Rank++) {
+            MPI_Recv(Message, etics_str_len, MPI_CHAR, Rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            printf(Message);
+            fflush(stdout);
+        }
+    } else {
+        MPI_Send(Message, etics_str_len, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+    }
+
+    // Here we collect the GPU IDs from all MPI processes and print a warning if one GPU is assigned to more than one process.
+    char *StrBuf;
+    StrBuf = (char*)malloc(NumProcs*etics_str_len*sizeof(char));
+    MPI_Gather( UniqueDeviceID, etics_str_len, MPI_CHAR, StrBuf, etics_str_len, MPI_CHAR, 0, MPI_COMM_WORLD); 
+    if (MyRank == 0) {
+        bool DuplicateFound = false;
+        for (int i = 0; i < NumProcs; i++) {
+            for (int j = i+1; j < NumProcs; j++) {
+                if (strcmp(StrBuf+i*etics_str_len, StrBuf+j*etics_str_len) == 0) {
+                    DuplicateFound = true;
+                    break;
+                }
+            if (DuplicateFound) break;
+            }
+        }
+        if (DuplicateFound) {
+            printf("\x1B[31m!!SEVERE WARNING!!\x1B[0m It seems the same physical GPU device was assigned to multiple processes; check the submission script.\n");
+        }
+    }
+    free(StrBuf);
+
+    // Now initiate the code
+    method::Init(N, 0, 0, 0, 0);
+
+    // Initiate the integrator
     Integrator IntegratorObj(LocalList, N);
 
     // More initializations.
