@@ -56,21 +56,21 @@ AS_IF([test -z $GPU_ARCH], [GPU_ARCH=35])
 
 # Some macros to help the script to detect libraries in unusual locations
 
-AC_DEFUN(AX_LDFLAGS_PUSH, [
+AC_DEFUN([AX_LDFLAGS_PUSH], [
     LDFLAGS_temporary_storage=$LDFLAGS
     LDFLAGS="$1 $LDFLAGS"
 ])
 
-AC_DEFUN(AX_LDFLAGS_POP, [
+AC_DEFUN([AX_LDFLAGS_POP], [
     LDFLAGS=$LDFLAGS_temporary_storage
 ])
 
-AC_DEFUN(AX_CPPFLAGS_PUSH, [
+AC_DEFUN([AX_CPPFLAGS_PUSH], [
     CPPFLAGS_temporary_storage=$CPPFLAGS
     CPPFLAGS="$1 $CPPFLAGS"
 ])
 
-AC_DEFUN(AX_CPPFLAGS_POP, [
+AC_DEFUN([AX_CPPFLAGS_POP], [
     CPPFLAGS=$CPPFLAGS_temporary_storage
 ])
 
@@ -194,7 +194,7 @@ MPICXX_SHOW_UNIQUE=$MPICXX_SHOW
 CPPFLAGS=`echo $H5CXX_SHOW $MPICXX_SHOW_UNIQUE | grep -o '\-[[DI]]\S\+' | tr '\n' ' ' | sed -e 's/\ \+/\ /g'`" "$CPPFLAGS
 LDFLAGS=`echo $H5CXX_SHOW $MPICXX_SHOW_UNIQUE | grep -o '\-L\S\+\|\-Wl\S\+' | tr '\n' ' ' | sed -e 's/\ \+/\ /g'`" "$LDFLAGS
 LIBS=`echo $H5CXX_SHOW $MPICXX_SHOW_UNIQUE | grep -o '\-l\S\+' | tr '\n' ' ' | sed -e 's/\ \+/\ /g'`" "$LIBS
-STATICLIBS=`echo $H5CXX_SHOW $MPICXX_SHOW_UNIQUE | grep -o '\s[[^-]]\+' | tr '\n' ' ' | sed -e 's/\ \+/\ /g'`" "$STATICLIBS
+STATICLIBS=`echo $H5CXX_SHOW $MPICXX_SHOW_UNIQUE | grep -o '\s[[^-]].\+' | tr '\n' ' ' | sed -e 's/\ \+/\ /g'`" "$STATICLIBS
 
 KNOWNFLAGS="$CPPFLAGS $LDFLAGS $LIBS $STATICLIBS"
 ALLOPTIONS="$H5CXX_SHOW $MPICXX_SHOW_UNIQUE"
