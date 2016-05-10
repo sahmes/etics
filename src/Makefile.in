@@ -48,6 +48,10 @@ standalone: $(CODEOBJS1) $(CODEOBJS2)
 	$(NVCC) $(CUDAFLAGS) -dlink $(CODEOBJS1) $(CODEOBJS2) -o dlink.o
 	$(CXX) $(CXXFLAGS) -o etics $(CODEOBJS1) $(CODEOBJS2) dlink.o $(STATICLIBS) $(LDFLAGS) $(LIBS)
 
+scf-optimize-lc: mathaux.o scf.o scf-optimize-lc.o ic.o
+	$(NVCC) $(CUDAFLAGS) -dlink mathaux.o scf.o scf-optimize-lc.o ic.o -o dlink.o
+	$(CXX) $(CXXFLAGS) -o scf-optimize-lc mathaux.o scf.o scf-optimize-lc.o ic.o dlink.o $(STATICLIBS) $(LDFLAGS) $(LIBS)
+
 .SUFFIXES: .cu .cpp .o
 
 # only io.cpp should be compiled with all the weird HDF5 flags

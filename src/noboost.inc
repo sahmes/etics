@@ -12,3 +12,4 @@ StepSize = 0.001953125;
 dT1      = 0.001953125;
 dT2      = 0.1;
 Prefix   = "test_del_me";
+Format   = "ascii";

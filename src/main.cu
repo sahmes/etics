@@ -167,14 +167,6 @@ int main(int argc, char *argv[]) {
             FileSnapshotNum = 0;
             FileTime = 0;
             cout << "Done." << endl;
-        } else if (Filename == "_launch_config_") {
-            if (NumProcs > 1) {
-                cerr << "Can only optimize launch configuration when a single MPI process is running!" << endl;
-                exit(1);
-            }
-            int k3gs, k3bs, k4gs, k4bs;
-            scf::OptimizeLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
-            return 0;
         }
         else {
             string InputFileSuffix = Filename.substr(Filename.find_last_of("."), Filename.length()-Filename.find_last_of("."));

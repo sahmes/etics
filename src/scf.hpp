@@ -16,6 +16,17 @@ namespace etics {
         void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
         void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
         void GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
-        void OptimizeLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
     }
+
+    struct CacheStruct {
+        int N;
+        Real *xi;
+        Real *Phi0l;
+        Real *Wprev1;
+        Real *Wprev2;
+        Real *costheta;
+        Real *sintheta_I;
+        Complex *Exponent;
+        Real *mass;
+    };
 }
