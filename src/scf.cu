@@ -21,23 +21,43 @@ using std::endl;
 
 namespace etics {
     namespace scf {
-        __constant__ Real RadCoeff[(NMAX+1)*(LMAX+1)];             /*!< Stores coefficients related to the G */
-        __constant__ Real AngCoeff[(LMAX+1)*(LMAX+2)/2];           /*!< used blab bla222 */
+        scfclass SCFObject;
+        bool GpuConstantMemoryLock = false;
+        // maybe should have some local counterpart variable saying what object in particular owns the lock
+
+        __constant__ Real RadCoeff[(NMAX+1)*(LMAX+1)];
+        __constant__ Real AngCoeff[(LMAX+1)*(LMAX+2)/2];
         __constant__ Complex A[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
         __constant__ CacheStruct Cache;
-                     Complex *PartialSum;
 
-        Real RadCoeff_h[(NMAX+1)*(LMAX+1)];        /*!< Stores coefficients related to the G */
-        Real AngCoeff_h[(LMAX+1)*(LMAX+2)/2];      /*!< used blab bla222 */
-        Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
-        CacheStruct Cache_h;
-        Complex *PartialSum_h;
+        Real RadCoeff_h[(NMAX+1)*(LMAX+1)];
+        Real AngCoeff_h[(LMAX+1)*(LMAX+2)/2];
 
-        int k3gs, k3bs, k4gs, k4bs;
     }
 }
 
-void etics::scf::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
+
+
+// ===================================================================================
+namespace etics {
+        namespace scf {
+        int blockSizeToDynamicSMemSize(int BlockSize) { // Should be a lambda function
+            return (LMAX+1)*sizeof(Complex)*BlockSize;
+        }
+    }
+}
+
+
+etics::scf::scfclass::scfclass() {
+    cerr << "OBJECT INIT" << endl;
+}
+
+etics::scf::scfclass::~scfclass() {
+    cerr << "OBJECT DESTROY" << endl;
+}
+
+
+void etics::scf::scfclass::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
     Cache_h.N = N;
     cudaMalloc((void**)&Cache_h.xi,         N * sizeof(Real));
     cudaMalloc((void**)&Cache_h.Phi0l,      N * sizeof(Real));
@@ -49,9 +69,94 @@ void etics::scf::InitializeCache(int N) { // not sure why it's a separate functi
     cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
 }
 
-void etics::scf::UpdateN(int N) {
-    Cache_h.N = N;
-    cudaMemcpyToSymbol(Cache, &Cache_h, sizeof(CacheStruct));
+
+
+void etics::scf::scfclass::CalculateCoefficients(int n, int l, Complex *A_h) {
+    int BaseAddress = n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2;
+    etics::scf::CalculateCoefficientsPartial<<<k3gs,k3bs,k3bs*sizeof(Complex)*(LMAX+1)>>>(n, l, PartialSum);
+    cudaMemcpy(PartialSum_h, PartialSum, k3gs*(l+1)*sizeof(Complex), cudaMemcpyDeviceToHost);
+    for (int m = 0; m <= l; m++)
+        for (int Block=0; Block<k3gs; Block++)
+            A_h[BaseAddress + m] = Complex_add(A_h[BaseAddress + m], PartialSum_h[Block*(l+1) + m]);
+}
+
+void etics::scf::scfclass::CalculateCoefficients(Complex *A_h) {
+    memset(A_h, 0, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+    for (int l = 0; l <= LMAX; l++) {
+        if (l > 0) etics::scf::CalculatePhi0l<<<128,128>>>(l); // wouldn't it make sense just putting it after the n-loop finishes? Probably not becasue then we need to skip at the last iter
+        for (int n = 0; n <= NMAX; n++) {
+            CalculateCoefficients(n, l, A_h);
+        }
+    }
+}
+
+
+void etics::scf::scfclass::SendCoeffsToGPU(Complex *A_h) {
+        cudaMemcpyToSymbol(etics::scf::A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+}
+
+void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
+    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N); ///////////////////////////////////////// why :-( :-( it's this object's memory!!!
+    CalculateCoefficients(A_h);
+    Complex ATotal[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
+    MPI_Allreduce(&A_h, &ATotal, (NMAX+1)*(LMAX+1)*(LMAX+2)/2*2, MPI_ETICS_REAL, MPI_SUM, MPI_COMM_WORLD);
+    std::copy ( ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
+#warning not really need this copy, just calculate the coefficients in some local array, then sum it into a global array (A_h or somthing) and copy it to GPUs
+//     cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+    SendCoeffsToGPU(A_h);
+    etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
+}
+
+
+void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
+#warning the launch configuration determination should be a function in the namespace, not part of the init
+    if ((k3gs_new==0) || (k3bs_new==0)) {
+        cerr << "Warning: launch configuration for CalculateCoefficientsPartial(...) is unspecified; performance can be improved by optimizing it for this device." << endl;
+        int blockSize;
+        int minGridSize;
+        int gridSize;
+        cudaOccupancyMaxPotentialBlockSizeVariableSMem(&minGridSize, &blockSize, etics::scf::CalculateCoefficientsPartial, etics::scf::blockSizeToDynamicSMemSize, 128);
+        cerr << "Warning: setting blockSizeLimit=128 for cudaOccupancyMaxPotentialBlockSizeVariableSMem." << endl;
+        gridSize = minGridSize;
+        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
+        k3gs = gridSize;
+        k3bs = blockSize;
+    } else {
+        k3gs = k3gs_new;
+        k3bs = k3bs_new;
+    }
+
+    if ((k4gs_new==0) || (k4bs_new==0)) {
+        cerr << "Warning: launch configuration for CalculateGravityFromCoefficients is unspecified; performance can be improved by optimizing it for this device." << endl;
+        int blockSize;
+        int minGridSize;
+        int gridSize;
+        cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, etics::scf::CalculateGravityFromCoefficients, 0, N);
+        gridSize = (N + blockSize - 1) / blockSize;
+        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
+        k4gs = gridSize;
+        k4bs = blockSize;
+    } else {
+        k4gs = k4gs_new;
+        k4bs = k4bs_new;
+    }
+
+    RadialCoefficients(etics::scf::RadCoeff_h);
+    cudaMemcpyToSymbol(etics::scf::RadCoeff, etics::scf::RadCoeff_h, (NMAX+1)*(LMAX+1) * sizeof(Real));
+    AngularCoefficients(etics::scf::AngCoeff_h);
+    cudaMemcpyToSymbol(etics::scf::AngCoeff, etics::scf::AngCoeff_h, (LMAX+1)*(LMAX+2)/2 * sizeof(Real));
+    InitializeCache(N);
+    cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
+    PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
+    cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
+}
+
+// ===================================================================================
+
+
+
+void etics::scf::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
+    SCFObject.InitializeCache(N);
 }
 
 __global__ void etics::scf::LoadParticlesToCache(Particle *P, int N) { // formerly "Kernel1"
@@ -154,22 +259,11 @@ __global__ void etics::scf::CalculateCoefficientsPartial(int n, int l, Complex *
 }
 
 void etics::scf::CalculateCoefficients(int n, int l, Complex *A_h) {
-    int BaseAddress = n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2;
-    CalculateCoefficientsPartial<<<k3gs,k3bs,k3bs*sizeof(Complex)*(LMAX+1)>>>(n, l, PartialSum);
-    cudaMemcpy(PartialSum_h, PartialSum, k3gs*(l+1)*sizeof(Complex), cudaMemcpyDeviceToHost);
-    for (int m = 0; m <= l; m++)
-        for (int Block=0; Block<k3gs; Block++)
-            A_h[BaseAddress + m] = Complex_add(A_h[BaseAddress + m], PartialSum_h[Block*(l+1) + m]);
+    SCFObject.CalculateCoefficients(n, l, A_h);
 }
 
 void etics::scf::CalculateCoefficients(Complex *A_h) {
-    memset(A_h, 0, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
-    for (int l = 0; l <= LMAX; l++) {
-        if (l > 0) CalculatePhi0l<<<128,128>>>(l); // wouldn't it make sense just putting it after the n-loop finishes? Probably not becasue then we need to skip at the last iter
-        for (int n = 0; n <= NMAX; n++) {
-            CalculateCoefficients(n, l, A_h);
-        }
-    }
+    SCFObject.CalculateCoefficients(A_h);
 }
 
 template<int Mode>
@@ -330,67 +424,15 @@ __global__ void etics::scf::CalculateGravityFromCoefficients(Real *Potential, ve
 #undef A
 
 void etics::scf::SendCoeffsToGPU(Complex *A_h) {
-        cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+    SCFObject.SendCoeffsToGPU(A_h); return;
 }
 
 void etics::scf::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
-    LoadParticlesToCache<<<128,128>>>(P, N);
-    CalculateCoefficients(A_h);
-    Complex ATotal[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
-    MPI_Allreduce(&A_h, &ATotal, (NMAX+1)*(LMAX+1)*(LMAX+2)/2*2, MPI_ETICS_REAL, MPI_SUM, MPI_COMM_WORLD);
-    std::copy ( ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
-#warning not really need this copy, just calculate the coefficients in some local array, then sum it into a global array (A_h or somthing) and copy it to GPUs
-//     cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
-    SendCoeffsToGPU(A_h);
-    CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
+    SCFObject.CalculateGravity(P, N, Potential, F);
 }
 
-namespace etics {
-        namespace scf {
-        int blockSizeToDynamicSMemSize(int BlockSize) { // Should be a lambda function
-            return (LMAX+1)*sizeof(Complex)*BlockSize;
-        }
-    }
-}
+
 
 void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
-    if ((k3gs_new==0) || (k3bs_new==0)) {
-        cerr << "Warning: launch configuration for CalculateCoefficientsPartial(...) is unspecified; performance can be improved by optimizing it for this device." << endl;
-        int blockSize;
-        int minGridSize;
-        int gridSize;
-        cudaOccupancyMaxPotentialBlockSizeVariableSMem(&minGridSize, &blockSize, CalculateCoefficientsPartial, blockSizeToDynamicSMemSize, 128);
-        cerr << "Warning: setting blockSizeLimit=128 for cudaOccupancyMaxPotentialBlockSizeVariableSMem." << endl;
-        gridSize = minGridSize;
-        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
-        k3gs = gridSize;
-        k3bs = blockSize;
-    } else {
-        k3gs = k3gs_new;
-        k3bs = k3bs_new;
-    }
-
-    if ((k4gs_new==0) || (k4bs_new==0)) {
-        cerr << "Warning: launch configuration for CalculateGravityFromCoefficients is unspecified; performance can be improved by optimizing it for this device." << endl;
-        int blockSize;
-        int minGridSize;
-        int gridSize;
-        cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CalculateGravityFromCoefficients, 0, N);
-        gridSize = (N + blockSize - 1) / blockSize;
-        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
-        k4gs = gridSize;
-        k4bs = blockSize;
-    } else {
-        k4gs = k4gs_new;
-        k4bs = k4bs_new;
-    }
-
-    RadialCoefficients(RadCoeff_h);
-    cudaMemcpyToSymbol(RadCoeff, RadCoeff_h, (NMAX+1)*(LMAX+1) * sizeof(Real));
-    AngularCoefficients(AngCoeff_h);
-    cudaMemcpyToSymbol(AngCoeff, AngCoeff_h, (LMAX+1)*(LMAX+2)/2 * sizeof(Real));
-    InitializeCache(N);
-    cudaMemcpyToSymbol(Cache, &Cache_h, sizeof(CacheStruct));
-    PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
-    cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
+    SCFObject.Init(N, k3gs_new, k3bs_new, k4gs_new, k4bs_new);
 }

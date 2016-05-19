@@ -16,17 +16,34 @@ namespace etics {
         void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
         void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
         void GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
+        struct CacheStruct {
+            int N;
+            Real *xi;
+            Real *Phi0l;
+            Real *Wprev1;
+            Real *Wprev2;
+            Real *costheta;
+            Real *sintheta_I;
+            Complex *Exponent;
+            Real *mass;
+        };
+        class scfclass {
+          public:
+            scfclass();
+            ~scfclass();
+            void InitializeCache(int N);
+            void CalculateCoefficients(int n, int l, Complex *A_h);
+            void CalculateCoefficients(Complex *A_h);
+            void SendCoeffsToGPU(Complex *A_h);
+            void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
+            void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
+            void GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
+          private:
+            Complex *PartialSum;
+            Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
+            CacheStruct Cache_h;
+            Complex *PartialSum_h;
+            int k3gs, k3bs, k4gs, k4bs;
+        };
     }
-
-    struct CacheStruct {
-        int N;
-        Real *xi;
-        Real *Phi0l;
-        Real *Wprev1;
-        Real *Wprev2;
-        Real *costheta;
-        Real *sintheta_I;
-        Complex *Exponent;
-        Real *mass;
-    };
 }

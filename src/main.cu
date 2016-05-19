@@ -273,16 +273,17 @@ int main(int argc, char *argv[]) {
             NextOutput += dT1;
         }
         if (T >= NextSnapshot) {
-            int CurrentTotalN;
-            PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
-            if (MyRank==0) {
-                if (Params.OutputFormat == "ascii") WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
-#ifdef ETICS_HDF5
-                else if (Params.OutputFormat == "hdf5") WriteSnapshotHDF5(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
-#endif
-                else {cerr << "Error" << endl; exit(1);}
-                free(FullList);
-            }
+            cerr << "TESTING MODE!!! NOT WRITING SNAPSHOTS!!!" << endl;
+//             int CurrentTotalN;
+//             PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
+//             if (MyRank==0) {
+//                 if (Params.OutputFormat == "ascii") WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+// #ifdef ETICS_HDF5
+//                 else if (Params.OutputFormat == "hdf5") WriteSnapshotHDF5(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+// #endif
+//                 else {cerr << "Error" << endl; exit(1);}
+//                 free(FullList);
+//             }
             SnapNumber++;
             NextSnapshot += dT2;
         }

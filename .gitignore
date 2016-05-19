@@ -1,0 +1,11 @@
+*.o
+*.so
+*.la
+*.a
+*.out
+test*
+Makefile
+config.h
+config.log
+config.status
+etics
