@@ -22,23 +22,24 @@ using std::endl;
 namespace etics {
     namespace scf {
         scfclass SCFObject;
-        bool GpuConstantMemoryLock = false;
-        // maybe should have some local counterpart variable saying what object in particular owns the lock
 
+        // These are truly global variables that are initialized once and can be read by every scfclass object.
+        bool ScfGloballyInitialized = false;
         __constant__ Real RadCoeff[(NMAX+1)*(LMAX+1)];
         __constant__ Real AngCoeff[(LMAX+1)*(LMAX+2)/2];
+                     Real RadCoeff_h[(NMAX+1)*(LMAX+1)];
+                     Real AngCoeff_h[(LMAX+1)*(LMAX+2)/2];
+
+        // These are global variables that are read/written by each scfclass object; they must be locked before use.
         __constant__ Complex A[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
         __constant__ CacheStruct Cache;
 
-        Real RadCoeff_h[(NMAX+1)*(LMAX+1)];
-        Real AngCoeff_h[(LMAX+1)*(LMAX+2)/2];
-
+        // These variables provide the mechanism to lock and release the global constant memory variables above.
+        bool GpuLock = false;
+        scfclass *GpuLockOwner = NULL;
     }
 }
 
-
-
-// ===================================================================================
 namespace etics {
         namespace scf {
         int blockSizeToDynamicSMemSize(int BlockSize) { // Should be a lambda function
@@ -47,15 +48,47 @@ namespace etics {
     }
 }
 
-
+// Class implementation
 etics::scf::scfclass::scfclass() {
-    cerr << "OBJECT INIT" << endl;
+    cerr << "scfclass OBJECT INIT" << endl;
 }
 
 etics::scf::scfclass::~scfclass() {
-    cerr << "OBJECT DESTROY" << endl;
+    if (CheckGpuLockOwner()) ReleaseGpuLock();
+    cudaFree(Cache_h.xi);
+    cudaFree(Cache_h.Phi0l);
+    cudaFree(Cache_h.Wprev1);
+    cudaFree(Cache_h.Wprev2);
+    cudaFree(Cache_h.costheta);
+    cudaFree(Cache_h.sintheta_I);
+    cudaFree(Cache_h.Exponent);
+    cudaFree(Cache_h.mass);
+    cerr << "scfclass OBJECT DESTROY" << endl;
 }
 
+void etics::scf::scfclass::GetGpuLock() {
+    if (etics::scf::GpuLock == false) {
+        etics::scf::GpuLock = true;
+        etics::scf::GpuLockOwner = this;
+    } else {
+        cerr << "Unable to Lock the GPU!" << endl;
+        exit(1);
+    }
+}
+
+bool etics::scf::scfclass::CheckGpuLockOwner() {
+    return etics::scf::GpuLockOwner == this;
+}
+
+void etics::scf::scfclass::ReleaseGpuLock() {
+    if (CheckGpuLockOwner() == true) {
+        etics::scf::GpuLock = false;
+        etics::scf::GpuLockOwner = NULL;
+    } else {
+        cerr << "Cannot release GPU since it's not owned by this object!" << endl;
+        exit(1);
+    }
+}
 
 void etics::scf::scfclass::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
     Cache_h.N = N;
@@ -68,8 +101,6 @@ void etics::scf::scfclass::InitializeCache(int N) { // not sure why it's a separ
     cudaMalloc((void**)&Cache_h.Exponent,   N * sizeof(Complex));
     cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
 }
-
-
 
 void etics::scf::scfclass::CalculateCoefficients(int n, int l, Complex *A_h) {
     int BaseAddress = n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2;
@@ -107,62 +138,53 @@ void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential,
     etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
 }
 
-
 void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
-#warning the launch configuration determination should be a function in the namespace, not part of the init
-    if ((k3gs_new==0) || (k3bs_new==0)) {
-        cerr << "Warning: launch configuration for CalculateCoefficientsPartial(...) is unspecified; performance can be improved by optimizing it for this device." << endl;
-        int blockSize;
-        int minGridSize;
-        int gridSize;
-        cudaOccupancyMaxPotentialBlockSizeVariableSMem(&minGridSize, &blockSize, etics::scf::CalculateCoefficientsPartial, etics::scf::blockSizeToDynamicSMemSize, 128);
-        cerr << "Warning: setting blockSizeLimit=128 for cudaOccupancyMaxPotentialBlockSizeVariableSMem." << endl;
-        gridSize = minGridSize;
-        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
-        k3gs = gridSize;
-        k3bs = blockSize;
-    } else {
+    // First, initialize global arrays if not already initialized.
+    if (!etics::scf::ScfGloballyInitialized) etics::scf::GlobalInit();
+
+    // Next, set the launch configuation (either guess it or use what the user specified).
+    if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) etics::scf::ZZZGuessLaunchConfigurationXXX(N, &k3gs, &k3bs, &k4gs, &k4bs);
+    else {
         k3gs = k3gs_new;
         k3bs = k3bs_new;
-    }
-
-    if ((k4gs_new==0) || (k4bs_new==0)) {
-        cerr << "Warning: launch configuration for CalculateGravityFromCoefficients is unspecified; performance can be improved by optimizing it for this device." << endl;
-        int blockSize;
-        int minGridSize;
-        int gridSize;
-        cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, etics::scf::CalculateGravityFromCoefficients, 0, N);
-        gridSize = (N + blockSize - 1) / blockSize;
-        cerr << "Using the following launch configuration: <<<" << gridSize << "," << blockSize << ">>>" << endl;
-        k4gs = gridSize;
-        k4bs = blockSize;
-    } else {
         k4gs = k4gs_new;
         k4bs = k4bs_new;
     }
 
-    RadialCoefficients(etics::scf::RadCoeff_h);
-    cudaMemcpyToSymbol(etics::scf::RadCoeff, etics::scf::RadCoeff_h, (NMAX+1)*(LMAX+1) * sizeof(Real));
-    AngularCoefficients(etics::scf::AngCoeff_h);
-    cudaMemcpyToSymbol(etics::scf::AngCoeff, etics::scf::AngCoeff_h, (LMAX+1)*(LMAX+2)/2 * sizeof(Real));
-    InitializeCache(N);
+    // If N > 0 then initialize the cahche memory.
+    if (N > 0) {
+        Cache_h.N = N;
+        cudaMalloc((void**)&Cache_h.xi,         N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Phi0l,      N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Wprev1,     N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Wprev2,     N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.costheta,   N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.sintheta_I, N * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Exponent,   N * sizeof(Complex));
+        cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
+    } else {
+        Cache_h.N = 0;
+        Cache_h.xi         = NULL;
+        Cache_h.Phi0l      = NULL;
+        Cache_h.Wprev1     = NULL;
+        Cache_h.Wprev2     = NULL;
+        Cache_h.costheta   = NULL;
+        Cache_h.sintheta_I = NULL;
+        Cache_h.Exponent   = NULL;
+        Cache_h.mass       = NULL;
+    }
+//     InitializeCache(N);
     cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
     PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
     cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
 }
 
-// ===================================================================================
+// Kernels
 
-
-
-void etics::scf::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
-    SCFObject.InitializeCache(N);
-}
-
-__global__ void etics::scf::LoadParticlesToCache(Particle *P, int N) { // formerly "Kernel1"
+__global__ void etics::scf::LoadParticlesToCache(Particle *P, int N, vec3 ExpansionCenter) { // formerly "Kernel1"
     int i = threadIdx.x + blockIdx.x *  blockDim.x;
     while (i < N) {
-        vec3 Pos = P[i].pos;
+        vec3 Pos = P[i].pos - ExpansionCenter;
         Real r = sqrt(Pos.x*Pos.x + Pos.y*Pos.y + Pos.z*Pos.z);
         Real xi = (r-1)/(r+1);
         Real costheta = Pos.z/r;
@@ -256,14 +278,6 @@ __global__ void etics::scf::CalculateCoefficientsPartial(int n, int l, Complex *
         if (tid == 0)
             PartialSum[blockIdx.x*(l+1) + m] = ReductionCache[m*blockDim.x];
     }
-}
-
-void etics::scf::CalculateCoefficients(int n, int l, Complex *A_h) {
-    SCFObject.CalculateCoefficients(n, l, A_h);
-}
-
-void etics::scf::CalculateCoefficients(Complex *A_h) {
-    SCFObject.CalculateCoefficients(A_h);
 }
 
 template<int Mode>
@@ -423,16 +437,37 @@ __global__ void etics::scf::CalculateGravityFromCoefficients(Real *Potential, ve
 }
 #undef A
 
-void etics::scf::SendCoeffsToGPU(Complex *A_h) {
-    SCFObject.SendCoeffsToGPU(A_h); return;
+// Global initialization
+void etics::scf::GlobalInit() {
+    RadialCoefficients(etics::scf::RadCoeff_h);
+    cudaMemcpyToSymbol(etics::scf::RadCoeff, etics::scf::RadCoeff_h, (NMAX+1)*(LMAX+1) * sizeof(Real));
+    AngularCoefficients(etics::scf::AngCoeff_h);
+    cudaMemcpyToSymbol(etics::scf::AngCoeff, etics::scf::AngCoeff_h, (LMAX+1)*(LMAX+2)/2 * sizeof(Real));
+    ScfGloballyInitialized = true;
+}
+
+
+// Old API
+void etics::scf::ZZZGuessLaunchConfigurationXXX(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
+    int blockSize;
+    int minGridSize;
+    int gridSize;
+    #warning "Warning: setting blockSizeLimit=128 for cudaOccupancyMaxPotentialBlockSizeVariableSMem."
+    cudaOccupancyMaxPotentialBlockSizeVariableSMem(&minGridSize, &blockSize, CalculateCoefficientsPartial, blockSizeToDynamicSMemSize, 128);
+    gridSize = minGridSize;
+    *k3gs_new = gridSize;
+    *k3bs_new = blockSize;
+
+    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CalculateGravityFromCoefficients, 0, N);
+    gridSize = (N + blockSize - 1) / blockSize;
+    *k4gs_new = gridSize;
+    *k4bs_new = blockSize;
 }
 
 void etics::scf::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
     SCFObject.CalculateGravity(P, N, Potential, F);
 }
 
-
-
-void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
+void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) { // to be removed!!
     SCFObject.Init(N, k3gs_new, k3bs_new, k4gs_new, k4bs_new);
 }

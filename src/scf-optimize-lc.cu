@@ -42,6 +42,7 @@ const double A000 = 9*(1-0.75*log(3)); // ~1.584, the theoretical A000 coefficie
 const double ExpectedForceX = -1e-5;
 
 void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
+    #warning do we have a copy of it in the scf.cu file?
     int blockSize;
     int minGridSize;
     int gridSize;

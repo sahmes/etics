@@ -5,7 +5,7 @@ namespace etics {
     namespace scf {
         void InitializeCache(int N);
         void UpdateN(int N);
-        __global__ void LoadParticlesToCache(Particle *P, int N);
+        __global__ void LoadParticlesToCache(Particle *P, int N, vec3 ExpansionCenter=vec3(0,0,0));
         __global__ void CalculatePhi0l(int l);
         __global__ void CalculateCoefficientsPartial(int n, int l, Complex *PartialSum);
         void CalculateCoefficients(int n, int l, Complex *A_h);
@@ -14,8 +14,10 @@ namespace etics {
         __global__ void CalculateGravityFromCoefficients(Real *Potential, vec3 *F);
         void SendCoeffsToGPU(Complex *A_h);
         void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
-        void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
-        void GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
+        void Init(int N, int k3gs_new=0, int k3bs_new=0, int k4gs_new=0, int k4bs_new=0); // to be removed!
+        void GlobalInit();
+        void ZZZGuessLaunchConfigurationXXX(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new);
+
         struct CacheStruct {
             int N;
             Real *xi;
@@ -27,6 +29,7 @@ namespace etics {
             Complex *Exponent;
             Real *mass;
         };
+
         class scfclass {
           public:
             scfclass();
@@ -44,6 +47,9 @@ namespace etics {
             CacheStruct Cache_h;
             Complex *PartialSum_h;
             int k3gs, k3bs, k4gs, k4bs;
+            void GetGpuLock();
+            void ReleaseGpuLock();
+            bool CheckGpuLockOwner();
         };
     }
 }
