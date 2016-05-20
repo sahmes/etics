@@ -49,7 +49,6 @@ namespace etics {
             int k3gs, k3bs, k4gs, k4bs;
             void GetGpuLock();
             void ReleaseGpuLock();
-            bool CheckGpuLockOwner();
         };
     }
 }

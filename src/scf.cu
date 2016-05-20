@@ -35,8 +35,12 @@ namespace etics {
         __constant__ CacheStruct Cache;
 
         // These variables provide the mechanism to lock and release the global constant memory variables above.
-        bool GpuLock = false;
         scfclass *GpuLockOwner = NULL;
+        #define GPU_LOCK_PANIC \
+        { \
+            std::cerr << "Error getting or releasing GPU lock; it is not owned by this object!" << endl; \
+            exit(1); \
+        }
     }
 }
 
@@ -54,7 +58,7 @@ etics::scf::scfclass::scfclass() {
 }
 
 etics::scf::scfclass::~scfclass() {
-    if (CheckGpuLockOwner()) ReleaseGpuLock();
+    if (etics::scf::GpuLockOwner == this) ReleaseGpuLock();
     cudaFree(Cache_h.xi);
     cudaFree(Cache_h.Phi0l);
     cudaFree(Cache_h.Wprev1);
@@ -67,27 +71,15 @@ etics::scf::scfclass::~scfclass() {
 }
 
 void etics::scf::scfclass::GetGpuLock() {
-    if (etics::scf::GpuLock == false) {
-        etics::scf::GpuLock = true;
-        etics::scf::GpuLockOwner = this;
-    } else {
-        cerr << "Unable to Lock the GPU!" << endl;
-        exit(1);
-    }
-}
-
-bool etics::scf::scfclass::CheckGpuLockOwner() {
-    return etics::scf::GpuLockOwner == this;
+    if (etics::scf::GpuLockOwner == this) return;
+    if (etics::scf::GpuLockOwner == NULL) etics::scf::GpuLockOwner = this;
+    else GPU_LOCK_PANIC;
 }
 
 void etics::scf::scfclass::ReleaseGpuLock() {
-    if (CheckGpuLockOwner() == true) {
-        etics::scf::GpuLock = false;
-        etics::scf::GpuLockOwner = NULL;
-    } else {
-        cerr << "Cannot release GPU since it's not owned by this object!" << endl;
-        exit(1);
-    }
+    if (etics::scf::GpuLockOwner == NULL) return;
+    if (etics::scf::GpuLockOwner == this) etics::scf::GpuLockOwner = NULL;
+    else GPU_LOCK_PANIC;
 }
 
 void etics::scf::scfclass::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
