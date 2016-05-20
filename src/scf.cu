@@ -38,7 +38,7 @@ namespace etics {
         scfclass *GpuLockOwner = NULL;
         #define GPU_LOCK_PANIC \
         { \
-            std::cerr << "Error getting or releasing GPU lock; it is not owned by this object!" << endl; \
+            std::cerr << "Error: GPU lock failed; lock not owned by this object!" << endl; \
             exit(1); \
         }
     }
@@ -67,6 +67,8 @@ etics::scf::scfclass::~scfclass() {
     cudaFree(Cache_h.sintheta_I);
     cudaFree(Cache_h.Exponent);
     cudaFree(Cache_h.mass);
+    free(PartialSum_h);
+    cudaFree(PartialSum);
     cerr << "scfclass OBJECT DESTROY" << endl;
 }
 
@@ -82,19 +84,7 @@ void etics::scf::scfclass::ReleaseGpuLock() {
     else GPU_LOCK_PANIC;
 }
 
-void etics::scf::scfclass::InitializeCache(int N) { // not sure why it's a separate function, the instructions can be in etics::scf::Init()
-    Cache_h.N = N;
-    cudaMalloc((void**)&Cache_h.xi,         N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.Phi0l,      N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.Wprev1,     N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.Wprev2,     N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.costheta,   N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.sintheta_I, N * sizeof(Real));
-    cudaMalloc((void**)&Cache_h.Exponent,   N * sizeof(Complex));
-    cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
-}
-
-void etics::scf::scfclass::CalculateCoefficients(int n, int l, Complex *A_h) {
+void etics::scf::scfclass::CalculateCoefficients(int n, int l) {
     int BaseAddress = n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2;
     etics::scf::CalculateCoefficientsPartial<<<k3gs,k3bs,k3bs*sizeof(Complex)*(LMAX+1)>>>(n, l, PartialSum);
     cudaMemcpy(PartialSum_h, PartialSum, k3gs*(l+1)*sizeof(Complex), cudaMemcpyDeviceToHost);
@@ -103,31 +93,40 @@ void etics::scf::scfclass::CalculateCoefficients(int n, int l, Complex *A_h) {
             A_h[BaseAddress + m] = Complex_add(A_h[BaseAddress + m], PartialSum_h[Block*(l+1) + m]);
 }
 
-void etics::scf::scfclass::CalculateCoefficients(Complex *A_h) {
+void etics::scf::scfclass::CalculateCoefficients() {
     memset(A_h, 0, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
     for (int l = 0; l <= LMAX; l++) {
         if (l > 0) etics::scf::CalculatePhi0l<<<128,128>>>(l); // wouldn't it make sense just putting it after the n-loop finishes? Probably not becasue then we need to skip at the last iter
         for (int n = 0; n <= NMAX; n++) {
-            CalculateCoefficients(n, l, A_h);
+            CalculateCoefficients(n, l);
         }
     }
 }
 
 
-void etics::scf::scfclass::SendCoeffsToGPU(Complex *A_h) {
-        cudaMemcpyToSymbol(etics::scf::A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+void etics::scf::scfclass::SendCoeffsToGPU() {
+    if (etics::scf::GpuLockOwner != this) GPU_LOCK_PANIC;
+    cudaMemcpyToSymbol(etics::scf::A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
+}
+
+void etics::scf::scfclass::SendCachePointersToGPU() {
+    if (etics::scf::GpuLockOwner != this) GPU_LOCK_PANIC;
+    cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
 }
 
 void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
-    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N); ///////////////////////////////////////// why :-( :-( it's this object's memory!!!
-    CalculateCoefficients(A_h);
+    GetGpuLock();
+    SendCachePointersToGPU();
+    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N);
+    CalculateCoefficients();
     Complex ATotal[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
     MPI_Allreduce(&A_h, &ATotal, (NMAX+1)*(LMAX+1)*(LMAX+2)/2*2, MPI_ETICS_REAL, MPI_SUM, MPI_COMM_WORLD);
     std::copy ( ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
 #warning not really need this copy, just calculate the coefficients in some local array, then sum it into a global array (A_h or somthing) and copy it to GPUs
 //     cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
-    SendCoeffsToGPU(A_h);
+    SendCoeffsToGPU();
     etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
+    ReleaseGpuLock();
 }
 
 void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
@@ -135,7 +134,7 @@ void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new,
     if (!etics::scf::ScfGloballyInitialized) etics::scf::GlobalInit();
 
     // Next, set the launch configuation (either guess it or use what the user specified).
-    if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) etics::scf::ZZZGuessLaunchConfigurationXXX(N, &k3gs, &k3bs, &k4gs, &k4bs);
+    if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) etics::scf::GuessLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
     else {
         k3gs = k3gs_new;
         k3bs = k3bs_new;
@@ -165,8 +164,6 @@ void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new,
         Cache_h.Exponent   = NULL;
         Cache_h.mass       = NULL;
     }
-//     InitializeCache(N);
-    cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
     PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
     cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
 }
@@ -440,7 +437,7 @@ void etics::scf::GlobalInit() {
 
 
 // Old API
-void etics::scf::ZZZGuessLaunchConfigurationXXX(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
+void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
     int blockSize;
     int minGridSize;
     int gridSize;
