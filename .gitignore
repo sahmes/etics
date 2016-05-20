@@ -9,3 +9,4 @@ config.h
 config.log
 config.status
 etics
+scf-optimize-lc

@@ -29,19 +29,21 @@ namespace etics {
           public:
             scfclass();
             ~scfclass();
+            void SendCachePointersToGPU();
+            void SendCoeffsToGPU();
             void CalculateCoefficients();
             void CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F);
             void Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
+            void SetLaunchConfiguration(int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new);
+            void GetCoefficients(Complex *A);
+            void GetGpuLock();
+            void ReleaseGpuLock();
           private:
             Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
             CacheStruct Cache_h;
             Complex *PartialSum;
             Complex *PartialSum_h;
             int k3gs, k3bs, k4gs, k4bs;
-            void GetGpuLock();
-            void ReleaseGpuLock();
-            void SendCachePointersToGPU();
-            void SendCoeffsToGPU();
             void CalculateCoefficients(int n, int l);
         };
     }

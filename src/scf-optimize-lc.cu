@@ -22,11 +22,7 @@ using std::endl;
 
 namespace etics {
     namespace scf {
-        extern __constant__ CacheStruct Cache;
-        extern              Complex *PartialSum;
-        extern Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
-        extern Complex *PartialSum_h;
-        extern int k3gs, k3bs, k4gs, k4bs;
+        int k3gs, k3bs, k4gs, k4bs;
 
         int blockSizeToDynamicSMemSize(int BlockSize);
         void TestK3(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success);
@@ -35,38 +31,23 @@ namespace etics {
     }
 }
 
+etics::scf::scfclass SCFObject;
+Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
 double *Potential;
 vec3 *F;
 vec3 FirstParticleForce;
 const double A000 = 9*(1-0.75*log(3)); // ~1.584, the theoretical A000 coefficient for a Hernquist sphere with a=1/3, which is what we get after noramalizing our initial conditions to Henon units.
 const double ExpectedForceX = -1e-5;
 
-void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, int *k4gs_new, int *k4bs_new) {
-    #warning do we have a copy of it in the scf.cu file?
-    int blockSize;
-    int minGridSize;
-    int gridSize;
-    cudaOccupancyMaxPotentialBlockSizeVariableSMem(&minGridSize, &blockSize, CalculateCoefficientsPartial, blockSizeToDynamicSMemSize, 128);
-    cerr << "Warning: setting blockSizeLimit=128 for cudaOccupancyMaxPotentialBlockSizeVariableSMem." << endl;
-    gridSize = minGridSize;
-    *k3gs_new = gridSize;
-    *k3bs_new = blockSize;
-
-    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, CalculateGravityFromCoefficients, 0, N);
-    gridSize = (N + blockSize - 1) / blockSize;
-    *k4gs_new = gridSize;
-    *k4bs_new = blockSize;
-}
-
-
 void etics::scf::TestK3(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success) {
     double Average_tmp=0, StandardDeviation_tmp = 0;
+    SCFObject.SetLaunchConfiguration(k3gs, k3bs, k4gs, k4bs);
     for (int k=0; k<numberoftries; k++) {
         LoadParticlesToCache<<<128,128>>>(ParticleList, N); // need to clear the cache
         DeviceTimer Timer;
         Timer.Start();
 
-        CalculateCoefficients(A_h);
+        SCFObject.CalculateCoefficients();
 
         Timer.Stop();
         double Milliseconds = Timer.Difference()*1000;
@@ -78,6 +59,7 @@ void etics::scf::TestK3(Particle *ParticleList, int N, int numberoftries, double
     *Average = Average_tmp;
     *StandardDeviation = StandardDeviation_tmp;
     double A000 = 9*(1-0.75*log(3)); // ~1.584, the theoretical A000 coefficient for a Hernquist sphere with a=1/3, which is what we get after noramalizing our initial conditions to Henon units.
+    SCFObject.GetCoefficients(A_h);
     *Success = (0.8 < A_h[0].x/A000) && (A_h[0].x/A000 < 1.2); // very rough success criterion.
 }
 
@@ -85,7 +67,8 @@ void etics::scf::TestK3(Particle *ParticleList, int N, int numberoftries, double
 void etics::scf::TestK4(Particle *ParticleList, int N, int numberoftries, double *Average, double *StandardDeviation, bool *Success) {
     // Need to make sure A_h is loaded to GPU and the first particle is at (187.79, 187.79, 0); also, global arrays Potential and F should be allocated on GPU
     double Average_tmp=0, StandardDeviation_tmp = 0;
-    SendCoeffsToGPU(A_h);
+    SCFObject.SetLaunchConfiguration(k3gs, k3bs, k4gs, k4bs);
+    SCFObject.SendCoeffsToGPU();
     cudaMemset(F, 0, sizeof(vec3));
 
     for (int k=0; k<numberoftries; k++) {
@@ -163,7 +146,14 @@ void etics::scf::OptimizeLaunchConfiguration(int N) {
     int k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp;
     GuessLaunchConfiguration(N, &k3gs_tmp, &k3bs_tmp, &k4gs_tmp, &k4bs_tmp);
     printf("Recommended launch configuration for Kernel3 (CalculateCoefficientsPartial): <<<%d,%d>>>\n", k3gs_tmp, k3bs_tmp);
-    Init(N, k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp);
+    SCFObject.Init(N, k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp);
+    k3gs = k3gs_tmp;
+    k3bs = k3bs_tmp;
+    k4gs = k4gs_tmp;
+    k4bs = k4bs_tmp;
+    SCFObject.GetGpuLock();
+    SCFObject.SendCachePointersToGPU();
+
     double Average=0, StandardDeviation=0;
     cout << "Testing..." << endl;
     bool Success;
@@ -181,10 +171,6 @@ void etics::scf::OptimizeLaunchConfiguration(int N) {
     printf("Executed in %.2f ms +/- %.2f\n\n", Average, StandardDeviation);
 
 
-    free(PartialSum_h);
-    cudaFree(PartialSum);
-    PartialSum_h = (Complex*)malloc(RealMaxGS*(LMAX+1)*sizeof(Complex)); // why not use "new"?
-    cudaMalloc((void**)&PartialSum, RealMaxGS*(LMAX+1)*sizeof(Complex));
 
     int TotalTests = RealMaxGS * (MaxBS/32);
     double Average_arr[TotalTests], StandardDeviation_arr[TotalTests];
@@ -224,7 +210,11 @@ void etics::scf::OptimizeLaunchConfiguration(int N) {
     }
 
     cout << "Optimizing K4" << endl;
-    Init(N, k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp);
+    SCFObject.Init(N, k3gs_tmp, k3bs_tmp, k4gs_tmp, k4bs_tmp);
+    k3gs = k3gs_tmp;
+    k3bs = k3bs_tmp;
+    k4gs = k4gs_tmp;
+    k4bs = k4bs_tmp;
     TestK3(ParticleList, N, 1, &Average, &StandardDeviation, &Success);
 
     i = 0;
@@ -267,7 +257,6 @@ void etics::scf::OptimizeLaunchConfiguration(int N) {
     printf("Optimal launch configuration for K4: <<<%d,%d>>>; execution time: %.2f ms.\n", k4gs_opt, k4bs_opt, k4_opt_time);
     printf("================================================================================\n");
 
-    cudaFree(PartialSum);
     cudaFree(ParticleList);
     cudaFree(Potential);
     cudaFree(F);

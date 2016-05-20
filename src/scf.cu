@@ -103,6 +103,10 @@ void etics::scf::scfclass::CalculateCoefficients() {
     }
 }
 
+void etics::scf::scfclass::GetCoefficients(Complex *A) {
+    std::copy(A_h, A_h+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A);
+}
+
 
 void etics::scf::scfclass::SendCoeffsToGPU() {
     if (etics::scf::GpuLockOwner != this) GPU_LOCK_PANIC;
@@ -129,18 +133,26 @@ void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential,
     ReleaseGpuLock();
 }
 
+void etics::scf::scfclass::SetLaunchConfiguration(int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
+    if (k3gs_new != k3gs) {
+        if (PartialSum_h != NULL) free(PartialSum_h);
+        if (PartialSum   != NULL) cudaFree(PartialSum_h);
+        PartialSum_h = (Complex*)malloc(k3gs_new*(LMAX+1)*sizeof(Complex));
+        cudaMalloc((void**)&PartialSum, k3gs_new*(LMAX+1)*sizeof(Complex));
+    }
+    k3gs = k3gs_new;
+    k3bs = k3bs_new;
+    k4gs = k4gs_new;
+    k4bs = k4bs_new;
+}
+
 void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
     // First, initialize global arrays if not already initialized.
     if (!etics::scf::ScfGloballyInitialized) etics::scf::GlobalInit();
 
     // Next, set the launch configuation (either guess it or use what the user specified).
     if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) etics::scf::GuessLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
-    else {
-        k3gs = k3gs_new;
-        k3bs = k3bs_new;
-        k4gs = k4gs_new;
-        k4bs = k4bs_new;
-    }
+    else SetLaunchConfiguration(k3gs_new, k3bs_new, k4gs_new, k4bs_new);
 
     // If N > 0 then initialize the cahche memory.
     if (N > 0) {
@@ -164,8 +176,6 @@ void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new,
         Cache_h.Exponent   = NULL;
         Cache_h.mass       = NULL;
     }
-    PartialSum_h = (Complex*)malloc(k3gs*(LMAX+1)*sizeof(Complex)); // why not use "new"?
-    cudaMalloc((void**)&PartialSum, k3gs*(LMAX+1)*sizeof(Complex));
 }
 
 // Kernels
