@@ -1,8 +1,18 @@
 #include <thrust/device_vector.h>
 #include <thrust/inner_product.h>
 #include "common.hpp"
-#include "scf.hpp"
 #include "integrate.hpp"
+
+#ifdef MEX
+    #define method mex
+    #include "mex.hpp"
+#elif defined(SCF)
+    #define method scf
+    #include "scf.hpp"
+#elif defined(MULTICENTER)
+    #define method multicenter
+    #include "multicenter.hpp"
+#endif
 
 #define PTR(x) (thrust::raw_pointer_cast((x).data()))
 
@@ -51,7 +61,7 @@ Integrator::Integrator(Particle *P_h, int _N) {
     P = thrust::device_vector<Particle>(P_h, P_h+N);
     Potential = thrust::device_vector<Real>(N);
     Force = thrust::device_vector<vec3>(N);
-    Method = &etics::scf::CalculateGravity;
+    Method = &etics::method::CalculateGravity;
     CalculateGravity();
     KickStep(0); // Just to "commit" the forces to the particle list.
 }

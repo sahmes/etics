@@ -6,7 +6,6 @@
 #include "common.hpp"
 #include "mathaux.hpp"
 #include "scf.hpp"
-#include "ic.hpp"
 
 #include <iostream>
 using std::cout;
@@ -86,7 +85,7 @@ void etics::scf::scfclass::ReleaseGpuLock() {
 
 void etics::scf::scfclass::CalculateCoefficients(int n, int l) {
     int BaseAddress = n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2;
-    etics::scf::CalculateCoefficientsPartial<<<k3gs,k3bs,k3bs*sizeof(Complex)*(LMAX+1)>>>(n, l, PartialSum);
+    etics::scf::CalculateCoefficientsPartial<<<k3gs,k3bs,k3bs*sizeof(Complex)*(LMAX+1)>>>(N, n, l, PartialSum);
     cudaMemcpy(PartialSum_h, PartialSum, k3gs*(l+1)*sizeof(Complex), cudaMemcpyDeviceToHost);
     for (int m = 0; m <= l; m++)
         for (int Block=0; Block<k3gs; Block++)
@@ -96,7 +95,7 @@ void etics::scf::scfclass::CalculateCoefficients(int n, int l) {
 void etics::scf::scfclass::CalculateCoefficients() {
     memset(A_h, 0, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
     for (int l = 0; l <= LMAX; l++) {
-        if (l > 0) etics::scf::CalculatePhi0l<<<128,128>>>(l); // wouldn't it make sense just putting it after the n-loop finishes? Probably not becasue then we need to skip at the last iter
+        if (l > 0) etics::scf::CalculatePhi0l<<<128,128>>>(N, l); // wouldn't it make sense just putting it after the n-loop finishes? Probably not becasue then we need to skip at the last iter
         for (int n = 0; n <= NMAX; n++) {
             CalculateCoefficients(n, l);
         }
@@ -118,18 +117,31 @@ void etics::scf::scfclass::SendCachePointersToGPU() {
     cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
 }
 
+void etics::scf::scfclass::LoadParticlesToCache(Particle *P, int N) {
+    if (N > Nmax) {
+        cerr << "You tried to load too many particles!";
+        exit(1);
+    }
+    this->N = N;
+    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N);
+}
+
+void etics::scf::scfclass::CalculateGravityFromCoefficients(Real *Potential, vec3 *F) {
+    etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(N, Potential, F);
+}
+
 void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
     GetGpuLock();
     SendCachePointersToGPU();
-    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N);
+    LoadParticlesToCache(P, N);
     CalculateCoefficients();
     Complex ATotal[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
     MPI_Allreduce(&A_h, &ATotal, (NMAX+1)*(LMAX+1)*(LMAX+2)/2*2, MPI_ETICS_REAL, MPI_SUM, MPI_COMM_WORLD);
-    std::copy ( ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
+    std::copy(ATotal, ATotal+(NMAX+1)*(LMAX+1)*(LMAX+2)/2, A_h);
 #warning not really need this copy, just calculate the coefficients in some local array, then sum it into a global array (A_h or somthing) and copy it to GPUs
 //     cudaMemcpyToSymbol(A, A_h, (NMAX+1)*(LMAX+1)*(LMAX+2)/2 * sizeof(Complex));
     SendCoeffsToGPU();
-    etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(Potential, F);
+    CalculateGravityFromCoefficients(Potential, F);
     ReleaseGpuLock();
 }
 
@@ -146,27 +158,30 @@ void etics::scf::scfclass::SetLaunchConfiguration(int k3gs_new, int k3bs_new, in
     k4bs = k4bs_new;
 }
 
-void etics::scf::scfclass::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
+void etics::scf::scfclass::Init(int Nmax, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) {
     // First, initialize global arrays if not already initialized.
     if (!etics::scf::ScfGloballyInitialized) etics::scf::GlobalInit();
 
     // Next, set the launch configuation (either guess it or use what the user specified).
-    if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) etics::scf::GuessLaunchConfiguration(N, &k3gs, &k3bs, &k4gs, &k4bs);
+    if ((k3gs_new<=0) || (k3bs_new<=0) || (k4gs_new<=0) || (k4bs_new<=0)) {
+        int k3gs_new, k3bs_new, k4gs_new, k4bs_new;
+        etics::scf::GuessLaunchConfiguration(Nmax, &k3gs_new, &k3bs_new, &k4gs_new, &k4bs_new);
+        SetLaunchConfiguration(k3gs_new, k3bs_new, k4gs_new, k4bs_new);
+    }
     else SetLaunchConfiguration(k3gs_new, k3bs_new, k4gs_new, k4bs_new);
 
-    // If N > 0 then initialize the cahche memory.
-    if (N > 0) {
-        Cache_h.N = N;
-        cudaMalloc((void**)&Cache_h.xi,         N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.Phi0l,      N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.Wprev1,     N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.Wprev2,     N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.costheta,   N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.sintheta_I, N * sizeof(Real));
-        cudaMalloc((void**)&Cache_h.Exponent,   N * sizeof(Complex));
-        cudaMalloc((void**)&Cache_h.mass,       N * sizeof(Real));
+    // If Nmax > 0 then initialize the cahche memory.
+    if (Nmax > 0) {
+        this->Nmax = Nmax;
+        cudaMalloc((void**)&Cache_h.xi,         Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Phi0l,      Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Wprev1,     Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Wprev2,     Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.costheta,   Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.sintheta_I, Nmax * sizeof(Real));
+        cudaMalloc((void**)&Cache_h.Exponent,   Nmax * sizeof(Complex));
+        cudaMalloc((void**)&Cache_h.mass,       Nmax * sizeof(Real));
     } else {
-        Cache_h.N = 0;
         Cache_h.xi         = NULL;
         Cache_h.Phi0l      = NULL;
         Cache_h.Wprev1     = NULL;
@@ -203,9 +218,9 @@ __global__ void etics::scf::LoadParticlesToCache(Particle *P, int N, vec3 Expans
     }
 }
 
-__global__ void etics::scf::CalculatePhi0l(int l) { // formerly "Kernel2"
+__global__ void etics::scf::CalculatePhi0l(int N, int l) { // formerly "Kernel2"
     int i = threadIdx.x + blockIdx.x *  blockDim.x;
-    while (i < Cache.N) {
+    while (i < N) {
         Real xi = Cache.xi[i];
         Cache.Phi0l[i] *= 0.25*(1-xi*xi);
 
@@ -213,12 +228,12 @@ __global__ void etics::scf::CalculatePhi0l(int l) { // formerly "Kernel2"
     }
 }
 
-__global__ void etics::scf::CalculateCoefficientsPartial(int n, int l, Complex *PartialSum) { // formerly "Kernel3"
+__global__ void etics::scf::CalculateCoefficientsPartial(int N, int n, int l, Complex *PartialSum) { // formerly "Kernel3"
     extern __shared__ Complex ReductionCache[]; // size is determined in kernel launch
     int tid = threadIdx.x;
     for (int m = 0; m <= l; m++) ReductionCache[m*blockDim.x+tid] = make_Complex(0, 0);
     int i = threadIdx.x + blockIdx.x * blockDim.x;
-    while (i < Cache.N) {
+    while (i < N) {
         Real xi = Cache.xi[i];
         Real Wnl;
         if (n == 0)      Wnl = 1;
@@ -414,7 +429,7 @@ __device__ void etics::scf::CalculateGravityTemplate(int i, Complex *A, vec3 *F,
 #undef A
 }
 
-__global__ void etics::scf::CalculateGravityFromCoefficients(Real *Potential, vec3 *F) { // formerly "Kernel4"
+__global__ void etics::scf::CalculateGravityFromCoefficients(int N, Real *Potential, vec3 *F) { // formerly "Kernel4"
 #define A(n,l,m) A[n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2 + m]
 #ifdef A_ON_SHARED_MEMORY
     __shared__ Complex Buffer[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
@@ -428,7 +443,7 @@ __global__ void etics::scf::CalculateGravityFromCoefficients(Real *Potential, ve
 #endif
 
     int i = threadIdx.x + blockIdx.x * blockDim.x;
-    while (i < Cache.N) {
+    while (i < N) {
         CalculateGravityTemplate<0>(i, A, &F[i], &Potential[i]);
 #warning if we have A_ON_SHARED_MEMORY the above won't work
         i += blockDim.x * gridDim.x;
@@ -463,10 +478,10 @@ void etics::scf::GuessLaunchConfiguration(int N, int *k3gs_new, int *k3bs_new, i
     *k4bs_new = blockSize;
 }
 
-void etics::scf::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
-    SCFObject.CalculateGravity(P, N, Potential, F);
-}
-
 void etics::scf::Init(int N, int k3gs_new, int k3bs_new, int k4gs_new, int k4bs_new) { // to be removed!!
     SCFObject.Init(N, k3gs_new, k3bs_new, k4gs_new, k4bs_new);
+}
+
+void etics::scf::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
+    SCFObject.CalculateGravity(P, N, Potential, F);
 }

@@ -52,6 +52,9 @@
 #elif defined(SCF)
     #define method scf
     #include "scf.hpp"
+#elif defined(MULTICENTER)
+    #define method multicenter
+    #include "multicenter.hpp"
 #endif
 
 using namespace std;
@@ -181,6 +184,23 @@ int main(int argc, char *argv[]) {
             } else ReadICsASCII(Filename, N, &FullList, &FileSnapshotNum, &FileTime);
         }
     }
+    
+//     cerr << "!!!Temporary test!!! spliting the ICs into two clusters" << endl;
+//     for (int i=0; i < N/2; i++) {
+//         Particle p = FullList[i];
+//         p.m *= 2;
+//         p.pos.x += 5.0;
+//         p.vel.y += 0.08;
+//         FullList[i] = p;
+//     }
+//     for (int i=N/2; i < N; i++) {
+//         Particle p = FullList[i];
+//         p.m *= 2;
+//         p.pos.x -= 5.0;
+//         p.vel.y -= 0.08;
+//         FullList[i] = p;
+//     }
+    
     
 #ifndef ETICS_HDF5
     if (Params.OutputFormat == "hdf5") {
