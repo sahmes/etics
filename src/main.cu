@@ -113,6 +113,8 @@ void PrepareSnapshot(Integrator IntegratorObj, Particle **ParticleList, int *Cur
     thrust::sort(*ParticleList, (*ParticleList)+TotalN, ReorderingFunctor());
 #endif
     *CurrentTotalN = TotalN;
+    free(LocalList);
+#warning Honestly I dont get why I use allocate memory inside the fuction, its very confusing and makes it harder to find leaks.
 }
 
 int main(int argc, char *argv[]) {
@@ -200,7 +202,14 @@ int main(int argc, char *argv[]) {
 //         p.vel.y -= 0.08;
 //         FullList[i] = p;
 //     }
-    
+    Particle p;
+    p.m = 0;
+    p.pos = vec3(-6.000050004121e-01 , 1e-7 , 0); // the slight offsets are needed due to pathology (can't have a particle really on the axis)
+    p.vel = vec3(0 , -9.509072e-04 , 0);
+    FullList[1000000-2] = p;
+    p.pos = vec3(2.940050000131351e+01 , 1e-6 , 0);
+    p.vel = vec3(0 , 4.659445e-02 , 0);
+    FullList[1000000-1] = p;
     
 #ifndef ETICS_HDF5
     if (Params.OutputFormat == "hdf5") {
@@ -293,17 +302,17 @@ int main(int argc, char *argv[]) {
             NextOutput += dT1;
         }
         if (T >= NextSnapshot) {
-            cerr << "TESTING MODE!!! NOT WRITING SNAPSHOTS!!!" << endl;
-//             int CurrentTotalN;
-//             PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
-//             if (MyRank==0) {
-//                 if (Params.OutputFormat == "ascii") WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
-// #ifdef ETICS_HDF5
-//                 else if (Params.OutputFormat == "hdf5") WriteSnapshotHDF5(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
-// #endif
-//                 else {cerr << "Error" << endl; exit(1);}
-//                 free(FullList);
-//             }
+//             cerr << "TESTING MODE!!! NOT WRITING SNAPSHOTS!!!" << endl;
+            int CurrentTotalN;
+            PrepareSnapshot(IntegratorObj, &FullList, &CurrentTotalN);
+            if (MyRank==0) {
+                if (Params.OutputFormat == "ascii") WriteSnapshotASCII(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+#ifdef ETICS_HDF5
+                else if (Params.OutputFormat == "hdf5") WriteSnapshotHDF5(Params.Prefix, SnapNumber, FullList, CurrentTotalN, T);
+#endif
+                else {cerr << "Error" << endl; exit(1);}
+                free(FullList);
+            }
             SnapNumber++;
             NextSnapshot += dT2;
         }

@@ -117,17 +117,27 @@ void etics::scf::scfclass::SendCachePointersToGPU() {
     cudaMemcpyToSymbol(etics::scf::Cache, &Cache_h, sizeof(etics::scf::CacheStruct));
 }
 
-void etics::scf::scfclass::LoadParticlesToCache(Particle *P, int N) {
+void etics::scf::scfclass::LoadParticlesToCache(Particle *P, int N, vec3 Offset) {
     if (N > Nmax) {
         cerr << "You tried to load too many particles!";
         exit(1);
     }
     this->N = N;
-    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N);
+    etics::scf::LoadParticlesToCache<<<128,128>>>(P, N, Offset);
 }
 
 void etics::scf::scfclass::CalculateGravityFromCoefficients(Real *Potential, vec3 *F) {
     etics::scf::CalculateGravityFromCoefficients<<<k4gs,k4bs>>>(N, Potential, F);
+}
+
+void etics::scf::scfclass::CalculateGravityAtPoint(vec3 Pos, Real *Potential, vec3 *F) {
+    Real r = sqrt(Pos.x*Pos.x + Pos.y*Pos.y + Pos.z*Pos.z);
+    Real xi = (r-1)/(r+1);
+    Real costheta = Pos.z/r;
+    Real Normal_I = rsqrt(Pos.x*Pos.x + Pos.y*Pos.y);
+    Complex Exponent = make_Complex(Pos.x*Normal_I, Pos.y*Normal_I);
+
+    etics::scf::CalculateGravityTemplate<0>(xi, costheta, Exponent, A_h, F, Potential);
 }
 
 void etics::scf::scfclass::CalculateGravity(Particle *P, int N, Real *Potential, vec3 *F) {
@@ -195,10 +205,10 @@ void etics::scf::scfclass::Init(int Nmax, int k3gs_new, int k3bs_new, int k4gs_n
 
 // Kernels
 
-__global__ void etics::scf::LoadParticlesToCache(Particle *P, int N, vec3 ExpansionCenter) { // formerly "Kernel1"
+__global__ void etics::scf::LoadParticlesToCache(Particle *P, int N, vec3 Offset) { // formerly "Kernel1"
     int i = threadIdx.x + blockIdx.x *  blockDim.x;
     while (i < N) {
-        vec3 Pos = P[i].pos - ExpansionCenter;
+        vec3 Pos = P[i].pos - Offset;
         Real r = sqrt(Pos.x*Pos.x + Pos.y*Pos.y + Pos.z*Pos.z);
         Real xi = (r-1)/(r+1);
         Real costheta = Pos.z/r;
@@ -295,11 +305,14 @@ __global__ void etics::scf::CalculateCoefficientsPartial(int N, int n, int l, Co
 }
 
 template<int Mode>
-__device__ void etics::scf::CalculateGravityTemplate(int i, Complex *A, vec3 *F, Real *Potential) {
+__host__ __device__ void etics::scf::CalculateGravityTemplate(Real xi, Real costheta, Complex Exponent, Complex *A, vec3 *F, Real *Potential) {
 // it gets A as parameter because it can be either on host or device
 #warning !!! This cannot really be a host function because it needs device cahce, angular coefficients which are on device!!
 // 0 = both force and potential, 1 = only force, 2 = only pot
 #define A(n,l,m) A[n*(LMAX+1)*(LMAX+2)/2 + l*(l+1)/2 + m]
+#ifndef  __CUDA_ARCH__
+    #define AngCoeff AngCoeff_h
+#endif
     Real dPhiLeft;
     Real dPhiLeftMul;
     Real dPhiRight;
@@ -310,15 +323,12 @@ __device__ void etics::scf::CalculateGravityTemplate(int i, Complex *A, vec3 *F,
 
     Real Pot = 0;
     Real Fr = 0, Ftheta = 0, Fphi = 0;
-    Real xi = Cache.xi[i];
     Real OneOverXiPlusOne = 1/(1+xi);
     Real r_I = (1-xi)*OneOverXiPlusOne;
     Real r = 1/r_I; // It's quite likely we can do everything without r.
-    Real costheta = Cache.costheta[i];
     Real sintheta_I = rsqrt(1-costheta*costheta); // faster than using cachei // You sure??? in K3 it's the opposite
 
     Complex ExponentTmp[LMAX];
-    Complex Exponent = Complex_conj(Cache.Exponent[i]);
     ExponentTmp[0] = Exponent;
     for (int m = 1; m < LMAX; m++) ExponentTmp[m] = Complex_mul(ExponentTmp[m-1],Exponent);
     if (Mode != 2) {
@@ -426,6 +436,9 @@ __device__ void etics::scf::CalculateGravityTemplate(int i, Complex *A, vec3 *F,
         *F = vec3(sintheta*cosphi*Fr + costheta*cosphi*Ftheta - sinphi*Fphi, sintheta*sinphi*Fr + costheta*sinphi*Ftheta + cosphi*Fphi,   costheta*Fr - sintheta*Ftheta);
     }
     if (Mode != 1) *Potential = Pot;
+#ifndef  __CUDA_ARCH__
+    #undef AngCoeff
+#endif
 #undef A
 }
 
@@ -444,7 +457,7 @@ __global__ void etics::scf::CalculateGravityFromCoefficients(int N, Real *Potent
 
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     while (i < N) {
-        CalculateGravityTemplate<0>(i, A, &F[i], &Potential[i]);
+        CalculateGravityTemplate<0>(Cache.xi[i], Cache.costheta[i], Complex_conj(Cache.Exponent[i]), A, &F[i], &Potential[i]);
 #warning if we have A_ON_SHARED_MEMORY the above won't work
         i += blockDim.x * gridDim.x;
     }
