@@ -54,6 +54,9 @@ namespace etics {
 // Class implementation
 etics::scf::scfclass::scfclass() {
     cerr << "scfclass OBJECT INIT" << endl;
+    N=0;
+    Nmax=0;
+    k3gs=-1; k3bs=-1; k4gs=-1; k4bs=-1;
 }
 
 etics::scf::scfclass::~scfclass() {
@@ -328,9 +331,16 @@ __host__ __device__ void etics::scf::CalculateGravityTemplate(Real xi, Real cost
     Real r = 1/r_I; // It's quite likely we can do everything without r.
     Real sintheta_I = rsqrt(1-costheta*costheta); // faster than using cachei // You sure??? in K3 it's the opposite
 
+#if LMAX > 0
     Complex ExponentTmp[LMAX];
     ExponentTmp[0] = Exponent;
     for (int m = 1; m < LMAX; m++) ExponentTmp[m] = Complex_mul(ExponentTmp[m-1],Exponent);
+#else
+    // ExponentTmp never actually used in this case, but has to be defined.
+    Complex ExponentTmp[1];
+    ExponentTmp[0] = make_Complex(1, 0);
+#endif
+
     if (Mode != 2) {
         Real xi2 = xi*xi;
         Real xi3 = xi2*xi;

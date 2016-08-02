@@ -139,7 +139,7 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     // If no BOOST, we include a file with the parameters and compile it.
     int N, DeviceID = -1;
     Real dT1, dT2, Tcrit, StepSize;
-    std::string Filename, Prefix = "";
+    std::string Filename, Prefix = "", OutputFormat;
     #include "noboost.inc"
     P.N = N;
     P.Filename = Filename;
@@ -148,6 +148,7 @@ void ParseInput(int argc, char *argv[], ParametersStruct *Params) {
     P.Tcrit = Tcrit;
     P.ConstantStep = StepSize;
     P.DeviceID = DeviceID;
+    P.OutputFormat = OutputFormat;
 #endif
     P.Seed = INT_MIN;
     if ((P.Filename[0]=='_') && (P.Filename.rfind("_") > 0)) {

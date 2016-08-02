@@ -40,17 +40,14 @@ namespace etics {
             void GetCoefficients(Complex *A);
             void GetGpuLock();
             void ReleaseGpuLock();
-            vec3 OriginPos = vec3(0,0,0);
-            vec3 OriginVel = vec3(0,0,0);
-            vec3 OriginAcc = vec3(0,0,0);
-          private:
-            int N=0;
-            int Nmax=0;
+//           private: // we'll make them private in the final version, now we need access for debugging
+            int N;
+            int Nmax;
             Complex A_h[(NMAX+1)*(LMAX+1)*(LMAX+2)/2];
             CacheStruct Cache_h;
             Complex *PartialSum;
             Complex *PartialSum_h;
-            int k3gs=-1, k3bs=-1, k4gs=-1, k4bs=-1;
+            int k3gs, k3bs, k4gs, k4bs;
             void CalculateCoefficients(int n, int l);
         };
     }
